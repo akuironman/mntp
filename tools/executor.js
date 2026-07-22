@@ -743,16 +743,19 @@ async function runSafetyChecks(name, args) {
 
       const deployAmountY = Number(args.amount_y ?? args.amount_sol ?? 0);
       const deployAmountX = Number(args.amount_x ?? 0);
-      if (Number.isFinite(deployAmountX) && deployAmountX > 0) {
+      const activeStrategy = args.strategy || config.strategy.strategy || "spot";
+      const isSpotDeploy = activeStrategy === "spot";
+      if (Number.isFinite(deployAmountX) && deployAmountX > 0 && !isSpotDeploy) {
         return {
           pass: false,
-          reason: "This agent only supports single-side SOL deploys. Use amount_y/amount_sol and keep amount_x=0.",
+          reason: "Two-sided deploy with amount_x is only supported for SPOT strategy. Use amount_y/amount_sol for bid_ask/curve, or use spot strategy.",
         };
       }
       const requestedBinsBelow = Number(args.bins_below ?? config.strategy.defaultBinsBelow ?? config.strategy.minBinsBelow);
       const requestedBinsAbove = Number(args.bins_above ?? 0);
       const minBinsBelow = Math.max(MIN_SAFE_BINS_BELOW, Number(config.strategy.minBinsBelow ?? MIN_SAFE_BINS_BELOW));
-      const isSingleSidedSol = deployAmountY > 0 && deployAmountX <= 0;
+      const isSingleSidedSol = deployAmountY > 0 && deployAmountX <= 0 && !isSpotDeploy;
+      const minBinsForStrategy = isSpotDeploy ? Math.max(10, Math.round(minBinsBelow / 2)) : minBinsBelow;
       const requestedTotalBins = requestedBinsBelow + requestedBinsAbove;
       const requestedVolatility = args.volatility == null ? null : Number(args.volatility);
       if (args.volatility != null && (!Number.isFinite(requestedVolatility) || requestedVolatility <= 0)) {
@@ -771,7 +774,7 @@ async function runSafetyChecks(name, args) {
           !Number.isInteger(requestedBinsAbove) ||
           requestedBinsBelow < 0 ||
           requestedBinsAbove < 0 ||
-          requestedTotalBins < minBinsBelow
+          requestedTotalBins < minBinsForStrategy
         )
       ) {
         return {

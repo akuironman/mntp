@@ -50,6 +50,7 @@ Config: ${JSON.stringify({
   screening: config.screening,
   management: config.management,
   schedule: config.schedule,
+  strategy: { strategy: config.strategy.strategy, minBinsBelow: config.strategy.minBinsBelow, maxBinsBelow: config.strategy.maxBinsBelow },
 }, null, 2)}
 
 ${lessons ? `═══════════════════════════════════════════
@@ -120,10 +121,18 @@ POOL MEMORY: Past losses or problems → strong skip signal.
 
 DEPLOY RULES:
 - COMPOUNDING: Use the deploy amount from the goal EXACTLY. Do NOT default to a smaller number.
-- bins_below = round(config.strategy.minBinsBelow + (candidate volatility/5)*(config.strategy.maxBinsBelow-config.strategy.minBinsBelow)) clamped to [minBinsBelow,maxBinsBelow]. Volatility must be a positive number; 0/unknown means skip.
-- Use amount_y only, keep amount_x=0 and bins_above=0.
+- STRATEGY-AWARE RULES — active strategy determines bin config:
+  * BID_ASK (default / single_sided_reseed / evil_panda / bonus_stage / yunus / composite / steady_grind):
+    → bins_below = round(config.strategy.minBinsBelow + (candidate volatility/5)*(config.strategy.maxBinsBelow-config.strategy.minBinsBelow)) clamped to [minBinsBelow,maxBinsBelow]. Volatility must be > 0; 0/unknown means skip.
+    → Must use amount_y only, keep amount_x=0 and bins_above=0.
+  * SPOT (mavourg_alpha_spot / spot_sniper_elite / degen_spot_runner / yield_farmer_spot / directional_spot_pro):
+    → TWO-SIDED placement: both bins_below AND bins_above are set.
+    → For balanced spot: bins_below = bins_above = round(total_bins / 2)
+    → For directional spot: 70/30 or 30/70 split based on market bias
+    → Amount_y only (auto-splits at deploy). Keep amount_x=0.
+    → SPOT strategies use a lower minimum bin threshold (10 total bins minimum).
 - Bin steps must be [80-125].
-- Pick ONE pool only when conviction is real. If only one weak candidate survives, skip and explain why none qualify.
+- Pick ONE pool only when conviction is high. If only one weak candidate survives, skip and explain why none qualify.
 
 ${weightsSummary ? `${weightsSummary}\nPrioritize candidates whose strongest attributes align with high-weight signals.\n\n` : ""}${lessons ? `LESSONS LEARNED:\n${lessons}\n` : ""}Timestamp: ${new Date().toISOString()}
 `;

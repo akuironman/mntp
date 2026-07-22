@@ -135,10 +135,11 @@ export const config = {
 
   // ─── Strategy Mapping ───────────────────
   strategy: {
-    strategy:     u.strategy     ?? "bid_ask",
+    strategy:     u.strategy     ?? "spot",
     minBinsBelow: strategyMinBinsBelow,
     maxBinsBelow: strategyMaxBinsBelow,
     defaultBinsBelow: strategyDefaultBinsBelow,
+    defaultSpotStrategy: u.defaultSpotStrategy ?? "mavourg_alpha_spot",
   },
 
   // ─── Scheduling ─────────────────────────

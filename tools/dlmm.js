@@ -538,17 +538,26 @@ export async function deployPosition({
       ? computeDeployAmount((await getWalletBalances()).sol)
       : 0;
   const finalAmountY = Number(amount_y ?? amount_sol ?? fallbackAmountY);
-  const finalAmountX = Number(amount_x ?? 0);
+  let finalAmountX = Number(amount_x ?? 0);
   if (!Number.isFinite(finalAmountY) || !Number.isFinite(finalAmountX) || finalAmountY < 0 || finalAmountX < 0) {
     throw new Error("Invalid deploy amount: amount_x and amount_y must be valid non-negative numbers.");
   }
-  if (finalAmountX > 0) {
-    throw new Error("Unsupported deploy amount: this agent only supports single-side SOL deploys. Use amount_y/amount_sol and keep amount_x=0.");
+
+  // ── TWO-SIDED SPOT STRATEGY ──────────────────────────────
+  // SPOT strategy distributes liquidity evenly across bins on both sides of
+  // the active price. Requires BOTH tokens (X = base token, Y = SOL/quote).
+  // When SOL-only is provided (amount_y), we auto-calculate 50/50 split.
+  const isSpotStrategy = activeStrategy === "spot";
+
+  if (finalAmountX > 0 && !isSpotStrategy) {
+    throw new Error("Two-sided deploy with amount_x is only supported for SPOT strategy. Use amount_y/amount_sol for bid_ask/curve, or use spot strategy.");
   }
+
   if (finalAmountY <= 0) {
     throw new Error("Invalid deploy amount: provide a positive amount_y/amount_sol.");
   }
-  const isSingleSidedSol = finalAmountX <= 0 && finalAmountY > 0;
+  const isSingleSidedSol = finalAmountX <= 0 && finalAmountY > 0 && !isSpotStrategy;
+  // SPOT strategy: bins_above > 0 is allowed (two-sided range)
   if (isSingleSidedSol && (Number(bins_above ?? 0) > 0 || Number(upside_pct ?? 0) > 0)) {
     throw new Error(
       "Single-side SOL deploy cannot use bins_above or upside_pct. Use amount_y with bins_below only; the upper bin is the SDK active bin.",
@@ -569,8 +578,9 @@ export async function deployPosition({
     throw new Error("Invalid bin range: bins_below and bins_above must be whole-bin integers.");
   }
   const minBinsBelow = Math.max(MIN_SAFE_BINS_BELOW, Number(config.strategy.minBinsBelow ?? MIN_SAFE_BINS_BELOW));
+  const minBinsForStrategy = isSpotStrategy ? Math.max(10, Math.round(minBinsBelow / 2)) : minBinsBelow;
   const totalBins = activeBinsBelow + activeBinsAbove;
-  if (totalBins < minBinsBelow) {
+  if (totalBins < minBinsForStrategy) {
     throw new Error(
       `Invalid deploy range: total bins ${totalBins} is below minimum ${minBinsBelow}. Refusing 1-bin/tiny-range deploy.`,
     );
