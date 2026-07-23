@@ -136,10 +136,67 @@ export const config = {
   // ─── Strategy Mapping ───────────────────
   strategy: {
     strategy:     u.strategy     ?? "spot",
+    deployEnabled: u.deployEnabled !== undefined ? u.deployEnabled : true,
     minBinsBelow: strategyMinBinsBelow,
     maxBinsBelow: strategyMaxBinsBelow,
     defaultBinsBelow: strategyDefaultBinsBelow,
     defaultSpotStrategy: u.defaultSpotStrategy ?? "mavourg_alpha_spot",
+  },
+
+  // ─── Auto-Compound ───────────────────
+  compound: {
+    enabled: u.compound?.enabled ?? false,
+    minClaimAmount: u.compound?.minClaimAmount ?? 1,     // $ min to claim
+    maxPerCycle: u.compound?.maxPerCycle ?? 3,            // max positions per cycle
+    cooldownMinutes: u.compound?.cooldownMinutes ?? 120,  // wait between compounds on same pos
+    keepPct: u.compound?.keepPct ?? 0.8,                  // % of claimed value to re-add
+  },
+
+  // ─── Multi-Strategy Portfolio ────────
+  portfolio: u.portfolio ?? [],
+
+  // ─── Jito Bundle Protection ─────────
+  jito: {
+    enabled: u.jito?.enabled ?? true,
+    tipLamports: u.jito?.tipLamports ?? 10_000,
+    blockEngineUrl: u.jito?.blockEngineUrl ?? "https://mainnet.block-engine.jito.wtf/api/v1",
+    tipAccount: u.jito?.tipAccount ?? "96gYZGDn1bYYY4aG8C6U3T5Gq7iT4iN8C2X9F7d2vJ1k",
+  },
+
+  // ─── Copy Top LPers ─────────────────
+  copyLp: {
+    enabled: u.copyLp?.enabled ?? false,
+    maxPools: u.copyLp?.maxPools ?? 3,
+    minLpWinRate: u.copyLp?.minLpWinRate ?? 70,
+    minLpPositions: u.copyLp?.minLpPositions ?? 5,
+    copyIntervalMin: u.copyLp?.copyIntervalMin ?? 60,
+    followOnly: u.copyLp?.followOnly ?? [],
+  },
+
+  // ─── Pump.fun Bridge Sniper ─────────
+  pumpSniper: {
+    enabled: u.pumpSniper?.enabled ?? false,
+    pollIntervalMs: u.pumpSniper?.pollIntervalMs ?? 15_000,
+    minMarketCap: u.pumpSniper?.minMarketCap ?? 30_000,
+    minVolumeSol: u.pumpSniper?.minVolumeSol ?? 5,
+    maxAgeMinutes: u.pumpSniper?.maxAgeMinutes ?? 30,
+    deployAmountSol: u.pumpSniper?.deployAmountSol ?? 0.3,
+    strategy: u.pumpSniper?.strategy ?? "spot",
+    bins_below: u.pumpSniper?.bins_below ?? 35,
+  },
+
+  // ─── Slippage-Aware Deploy ─────────
+  slippageAware: {
+    enabled: u.slippageAware?.enabled ?? true,
+    maxVolatility1m: u.slippageAware?.maxVolatility1m ?? 5,
+    delayMs: u.slippageAware?.delayMs ?? 30_000,
+    maxRetries: u.slippageAware?.maxRetries ?? 3,
+  },
+
+  // ─── Web Dashboard ─────────────────
+  webDashboard: {
+    enabled: u.webDashboard?.enabled ?? false,
+    port: u.webDashboard?.port ?? 3333,
   },
 
   // ─── Scheduling ─────────────────────────

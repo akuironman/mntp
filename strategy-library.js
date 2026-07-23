@@ -9,6 +9,7 @@
 import fs from "fs";
 import { log } from "./logger.js";
 import { repoPath } from "./repo-root.js";
+import { config } from "./config.js";
 
 const STRATEGY_FILE = repoPath("strategy-library.json");
 
@@ -650,14 +651,37 @@ export function getStrategy({ id }) {
 /**
  * Set the active strategy used during screening cycles.
  */
+const USER_CONFIG_PATH = repoPath("user-config.json");
+
 export function setActiveStrategy({ id }) {
   if (!id) return { error: "id required" };
   const db = load();
   if (!db.strategies[id]) return { error: `Strategy "${id}" not found`, available: Object.keys(db.strategies) };
   db.active = id;
   save(db);
-  log("strategy", `Active strategy set to: ${db.strategies[id].name}`);
-  return { active: id, name: db.strategies[id].name };
+
+  // Auto-sync deploy strategy type from library to live config + user-config.json
+  const strat = db.strategies[id];
+  const deployType = strat.lp_strategy; // "spot", "bid_ask", "curve"
+  const supported = ["spot", "bid_ask", "curve"];
+  if (supported.includes(deployType) && config.strategy.strategy !== deployType) {
+    config.strategy.strategy = deployType;
+    // Persist to user-config.json
+    try {
+      let ucfg = {};
+      if (fs.existsSync(USER_CONFIG_PATH)) {
+        ucfg = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"));
+      }
+      ucfg.strategy = deployType;
+      fs.writeFileSync(USER_CONFIG_PATH, JSON.stringify(ucfg, null, 2));
+      log("strategy", `Auto-synced config.strategy.strategy → ${deployType} (from library strategy: ${strat.name})`);
+    } catch (e) {
+      log("strategy_warn", `Could not persist strategy to user-config.json: ${e.message}`);
+    }
+  }
+
+  log("strategy", `Active strategy set to: ${strat.name} (lp_strategy: ${deployType})`);
+  return { active: id, name: strat.name, deployType };
 }
 
 /**

@@ -36,6 +36,12 @@ import { stageSignals } from "./signal-tracker.js";
 import { getWeightsSummary } from "./signal-weights.js";
 import { bootstrapHiveMind, ensureAgentId, getHiveMindPullMode, isHiveMindEnabled, pullHiveMindLessons, pullHiveMindPresets, registerHiveMindAgent, startHiveMindBackgroundSync } from "./hivemind.js";
 import { appendDecision } from "./decision-log.js";
+import { runCompoundCycle } from "./auto-compound.js";
+import { runCopyLPCycle, formatCopyLpStatus } from "./copy-lp.js";
+import { isPortfolioMode, rotatePortfolio, formatPortfolioStatus } from "./portfolio.js";
+import { startPumpSniper, stopPumpSniper, formatPumpSniperStatus } from "./pump-sniper.js";
+import { waitForGoodTiming } from "./slippage-aware.js";
+import { startDashboard, stopDashboard } from "./web-dashboard.js";
 
 import { REPO_ROOT, repoPath } from "./repo-root.js";
 
@@ -55,6 +61,12 @@ if (isMain) {
   ensureAgentId();
   bootstrapHiveMind().catch((error) => log("hivemind_warn", `Bootstrap failed: ${error.message}`));
   startHiveMindBackgroundSync();
+
+  // Start Pump.fun sniper
+  startPumpSniper();
+
+  // Start Web Dashboard
+  startDashboard();
 }
 
 const TP_PCT = config.management.takeProfitPct;
@@ -94,6 +106,7 @@ let _cronTasks = [];
 let _managementBusy = false; // prevents overlapping management cycles
 let _screeningBusy = false;  // prevents overlapping screening cycles
 let _screeningLastTriggered = 0; // epoch ms — prevents management from spamming screening
+let _lastCopyLpRun = 0;
 // Exit/peak confirmation is now done by consecutive-tick counting in state.js
 // (registerExitSignal / confirmPeak), driven by the 3s RPC poller — no setTimeout rechecks.
 
@@ -332,6 +345,35 @@ export async function runManagementCycle({ silent = false } = {}) {
       await liveMessage?.note("No tool actions needed.");
     }
 
+    // ── Post-management: compound & copy-LP ────────────────
+    try {
+      const compoundReport = await runCompoundCycle();
+      if (compoundReport?.results?.length > 0) {
+        const compounded = compoundReport.results.filter(r => r.compounded).length;
+        const claimed = compoundReport.results.filter(r => r.claimed && !r.compounded).length;
+        log("compound", `Cycle done: ${compounded} compounded, ${claimed} claimed-only`);
+        if (liveMessage) await liveMessage.note(`💰 Compound: ${compounded} done, ${claimed} claimed`);
+      }
+    } catch (e) {
+      log("compound_error", `Compound cycle failed: ${e.message}`);
+    }
+
+    // Copy top LPers (less frequent — only if enabled and interval has passed)
+    if (config.copyLp?.enabled) {
+      const copyIntervalMs = (config.copyLp.copyIntervalMin ?? 60) * 60 * 1000;
+      if (!_lastCopyLpRun || Date.now() - _lastCopyLpRun > copyIntervalMs) {
+        runCopyLPCycle().then(report => {
+          if (report?.deployed?.length > 0) {
+            log("copylp", `Copied ${report.deployed.length} positions`);
+            if (telegramEnabled()) {
+              sendMessage(`📋 Copy LP: ${report.deployed.length} positions deployed`).catch(() => {});
+            }
+          }
+          _lastCopyLpRun = Date.now();
+        }).catch(e => log("copylp_error", `Copy LP cycle failed: ${e.message}`));
+      }
+    }
+
     // Trigger screening after management
     const afterPositions = await getMyPositions({ force: true }).catch(() => null);
     const afterCount = afterPositions?.positions?.length ?? 0;
@@ -385,6 +427,18 @@ export async function runScreeningCycle({ silent = false } = {}) {
       _screeningBusy = false;
       return screenReport;
     }
+    if (!config.strategy.deployEnabled) {
+      log("cron", `Screening skipped — deploy is disabled (deployEnabled=false). Use /deployon to re-enable.`);
+      screenReport = `Screening skipped — deploy is disabled. Use /deployon / /deployoff to toggle.`;
+      appendDecision({
+        type: "skip",
+        actor: "SCREENER",
+        summary: "Screening skipped",
+        reason: "deployEnabled=false",
+      });
+      _screeningBusy = false;
+      return screenReport;
+    }
     const minRequired = config.management.deployAmountSol + config.management.gasReserve;
     const isDryRun = process.env.DRY_RUN === "true";
     if (!isDryRun && preBalance.sol < minRequired) {
@@ -410,6 +464,18 @@ export async function runScreeningCycle({ silent = false } = {}) {
   }
   timers.screeningLastRun = Date.now();
   log("cron", `Starting screening cycle [model: ${config.llm.screeningModel}]`);
+
+  // Multi-strategy portfolio rotation
+  if (isPortfolioMode()) {
+    const rotation = rotatePortfolio();
+    if (rotation) {
+      log("cron", `Portfolio rotated → ${rotation.name} (${rotation.deployType}) — cycle ${rotation.cycle}`);
+      if (liveMessage) {
+        await liveMessage.note(`🎯 ${rotation.name} (${rotation.deployType}) — cycle ${rotation.cycle}/${rotation.total}`);
+      }
+    }
+  }
+
   try {
     // Reuse pre-fetched balance — no extra RPC call needed
     const currentBalance = preBalance;
@@ -858,6 +924,8 @@ async function shutdown(signal) {
   log("shutdown", `Received ${signal}. Shutting down...`);
   stopPolling();
   stopCronJobs();
+  stopPumpSniper();
+  stopDashboard();
 
   const positions = await withTimeout(
     getMyPositions({ force: true, silent: true }).catch((error) => {
@@ -1000,7 +1068,7 @@ function formatConfigSnapshot() {
   return [
     "Config snapshot",
     "",
-    `Strategy: ${config.strategy.strategy} | binsBelow: ${config.strategy.minBinsBelow}-${config.strategy.maxBinsBelow} | default ${config.strategy.defaultBinsBelow}`,
+    `Strategy: ${config.strategy.strategy} | Auto-deploy: ${config.strategy.deployEnabled ? "ON" : "OFF"} | binsBelow: ${config.strategy.minBinsBelow}-${config.strategy.maxBinsBelow} | default ${config.strategy.defaultBinsBelow}`,
     `Deploy: ${config.management.deployAmountSol} SOL | gasReserve: ${config.management.gasReserve} | maxPositions: ${config.risk.maxPositions}`,
     `Stop loss: ${config.management.stopLossPct}% | take profit: ${config.management.takeProfitPct}%`,
     `Trailing: ${config.management.trailingTakeProfit ? "on" : "off"} | trigger ${config.management.trailingTriggerPct}% | drop ${config.management.trailingDropPct}%`,
@@ -1037,6 +1105,7 @@ function settingValue(key) {
     minBinsBelow: config.strategy.minBinsBelow,
     maxBinsBelow: config.strategy.maxBinsBelow,
     defaultBinsBelow: config.strategy.defaultBinsBelow,
+    deployEnabled: config.strategy.deployEnabled,
     deployAmountSol: config.management.deployAmountSol,
     gasReserve: config.management.gasReserve,
     maxPositions: config.risk.maxPositions,
@@ -1135,6 +1204,7 @@ function renderSettingsMenu(page = "main") {
         settingButton(`Strategy: spot`, "cfg:set:strategy:spot"),
         settingButton(`Strategy: bid_ask`, "cfg:set:strategy:bid_ask"),
       ],
+      [toggleButton("deployEnabled", "Auto-deploy")],
       stepButtons("minBinsBelow", "Min bins", 1, { digits: 0 }),
       stepButtons("maxBinsBelow", "Max bins", 1, { digits: 0 }),
       stepButtons("defaultBinsBelow", "Default bins", 1, { digits: 0 }),
@@ -1292,6 +1362,15 @@ function formatHelpText() {
     "/hive pull — manual HiveMind pull now",
     "/pause — stop cron cycles",
     "/resume — start cron cycles again",
+    "/deployoff — stop auto-deploy (bot stays on, no new positions)",
+    "/deployon — re-enable auto-deploy",
+    "/compound — manual trigger fee compounding",
+    "/portfolio — show multi-strategy portfolio status",
+    "/copylp — show copy-LP status",
+    "/copylp scan — manual copy-LP scan and deploy",
+    "/pump — pump.fun sniper status",
+    "/pump scan — manual pump.fun → Meteora scan",
+    "/dashboard — web dashboard URL",
     "/stop — shut down agent",
   ].join("\n");
 }
@@ -1349,6 +1428,16 @@ async function deployLatestCandidate(index) {
   }
   const deployAmount = computeDeployAmount((await getWalletBalances()).sol);
   const binsBelow = computeBinsBelow(candidate.volatility);
+
+  // Slippage-aware timing check
+  const timing = await waitForGoodTiming({
+    pool_address: candidate.pool,
+    volatility: candidate.volatility,
+  });
+  if (!timing.ok) {
+    throw new Error(`Slippage check failed: ${timing.reason}`);
+  }
+
   const result = await executeTool("deploy_position", {
     pool_address: candidate.pool,
     amount_y: deployAmount,
@@ -1630,11 +1719,14 @@ async function telegramHandler(msg) {
             await sendMessage(`Available:\n${result.available.map(a => `• ${a}`).join("\n")}`).catch(() => {});
           }
         } else {
+          // Show deploy type sync info
+          const deployType = result.deployType || config.strategy.strategy;
           await sendHTML(
             `✅ <b>Strategy switched</b>\n` +
             `${STRAT_DOUBLE_SEP}\n` +
             `Now active: <b>${result.name}</b>\n` +
-            `ID: <code>${result.active}</code>\n\n` +
+            `ID: <code>${result.active}</code>\n` +
+            `Deploy type: <code>${deployType}</code> | Auto-deploy: ${config.strategy.deployEnabled ? "<b>ON</b>" : "<b>OFF</b>"}\n\n` +
             `Will be used on next screening cycle.`
           ).catch(() => {});
         }
@@ -1703,6 +1795,108 @@ async function telegramHandler(msg) {
     } else {
       await sendMessage("Autonomous cycles are already running.").catch(() => {});
     }
+    return;
+  }
+
+  if (text === "/deployoff") {
+    config.strategy.deployEnabled = false;
+    try {
+      let ucfg = fs.existsSync(repoPath("user-config.json")) ? JSON.parse(fs.readFileSync(repoPath("user-config.json"), "utf8")) : {};
+      ucfg.deployEnabled = false;
+      fs.writeFileSync(repoPath("user-config.json"), JSON.stringify(ucfg, null, 2));
+    } catch (e) {}
+    await sendMessage("⏸ Auto-deploy disabled. Bot still runs management/harvest. Use /deployon to re-enable.").catch(() => {});
+    return;
+  }
+
+  if (text === "/deployon") {
+    config.strategy.deployEnabled = true;
+    try {
+      let ucfg = fs.existsSync(repoPath("user-config.json")) ? JSON.parse(fs.readFileSync(repoPath("user-config.json"), "utf8")) : {};
+      ucfg.deployEnabled = true;
+      fs.writeFileSync(repoPath("user-config.json"), JSON.stringify(ucfg, null, 2));
+    } catch (e) {}
+    await sendMessage("▶️ Auto-deploy enabled. Bot will deploy on next screening cycle.").catch(() => {});
+    return;
+  }
+
+  if (text === "/compound") {
+    await runBusy(async () => {
+      const report = await runCompoundCycle();
+      const lines = ["💰 Auto-Compound Report"];
+      if (report?.skipped) {
+        lines.push(`Skipped: ${report.reason}`);
+      } else if (report?.results) {
+        const good = report.results.filter(r => r.compounded);
+        const claim = report.results.filter(r => r.claimed && !r.compounded);
+        lines.push(`Compounded: ${good.length} | Claimed-only: ${claim.length} | Failed: ${report.failed}`);
+        for (const r of report.results) {
+          const status = r.compounded ? `✅ ${r.amount_sol} SOL` : r.skipped ? `⏭ ${r.note || ""}` : `❌ ${r.error || ""}`;
+          lines.push(`  ${r.pair}: ${status}`);
+        }
+      }
+      await sendMessage(lines.join("\n")).catch(() => {});
+    });
+    return;
+  }
+
+  if (text === "/portfolio") {
+    await sendMessage(formatPortfolioStatus()).catch(() => {});
+    return;
+  }
+
+  if (text === "/copylp" || text === "/copylp status") {
+    await sendMessage(formatCopyLpStatus() + (config.copyLp?.enabled ? "\n\nRun /copylp scan to trigger a scan now." : "")).catch(() => {});
+    return;
+  }
+
+  if (text === "/copylp scan") {
+    if (!config.copyLp?.enabled) {
+      await sendMessage("Copy LP is disabled. Enable it in config first.").catch(() => {});
+      return;
+    }
+    await runBusy(async () => {
+      const report = await runCopyLPCycle();
+      if (report?.skipped) {
+        await sendMessage(`📋 Copy LP: ${report.reason}`).catch(() => {});
+      } else {
+        const lines = ["📋 Copy LP Scan Results", `LPers tracked: ${report.lpers.map(l => `${l.name} (${l.wr}% WR)`).join(", ")}`];
+        if (report.poolsDiscovered > 0) lines.push(`Pools discovered: ${report.poolsDiscovered}`);
+        if (report.poolsPassed > 0) lines.push(`Pools passed screening: ${report.poolsPassed}`);
+        if (report.deployed?.length > 0) {
+          lines.push(`Deployed: ${report.deployed.length}`);
+          for (const d of report.deployed) {
+            lines.push(`  ✅ ${d.pair} (${d.strategy}) — copy of ${d.lper}`);
+          }
+        } else {
+          lines.push("No pools met screening criteria this cycle.");
+        }
+        await sendMessage(lines.join("\n")).catch(() => {});
+      }
+    });
+    return;
+  }
+
+  if (text === "/pump" || text === "/pump status") {
+    await sendMessage(formatPumpSniperStatus()).catch(() => {});
+    return;
+  }
+
+  if (text === "/pump scan") {
+    if (!config.pumpSniper?.enabled) {
+      await sendMessage("Pump.fun sniper is disabled. Enable it in config first.").catch(() => {});
+      return;
+    }
+    await runBusy(async () => {
+      const report = await (await import("./pump-sniper.js")).runSniperTick();
+      await sendMessage(`🚀 Pump scan done: checked ${report.checked || 0} tokens`).catch(() => {});
+    });
+    return;
+  }
+
+  if (text === "/dashboard") {
+    const port = config.webDashboard?.port ?? 3333;
+    await sendMessage(`📊 Dashboard: http://localhost:${port}\n\nAkses dari HP via Tailscale / ngrok / LAN IP`).catch(() => {});
     return;
   }
 

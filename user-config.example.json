@@ -108,5 +108,52 @@
   "telegramChatId": "",
   "hiveMindUrl": "",
   "hiveMindApiKey": "",
-  "hiveMindPullMode": "auto"
+  "hiveMindPullMode": "auto",
+
+  "compound": {
+    "enabled": false,
+    "minClaimAmount": 1,
+    "maxPerCycle": 3,
+    "cooldownMinutes": 120,
+    "keepPct": 0.8
+  },
+
+  "portfolio": [],
+
+  "jito": {
+    "enabled": true,
+    "tipLamports": 10000
+  },
+
+  "copyLp": {
+    "enabled": false,
+    "maxPools": 3,
+    "minLpWinRate": 70,
+    "minLpPositions": 5,
+    "copyIntervalMin": 60,
+    "followOnly": []
+  },
+
+  "pumpSniper": {
+    "enabled": false,
+    "pollIntervalMs": 15000,
+    "minMarketCap": 30000,
+    "minVolumeSol": 5,
+    "maxAgeMinutes": 30,
+    "deployAmountSol": 0.3,
+    "strategy": "spot",
+    "bins_below": 35
+  },
+
+  "slippageAware": {
+    "enabled": true,
+    "maxVolatility1m": 5,
+    "delayMs": 30000,
+    "maxRetries": 3
+  },
+
+  "webDashboard": {
+    "enabled": false,
+    "port": 3333
+  }
 }
