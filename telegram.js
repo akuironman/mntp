@@ -409,25 +409,33 @@ async function poll(onMessage) {
 }
 
 const BOT_COMMANDS = [
-  { command: "help",       description: "Show commands" },
-  { command: "status",     description: "Wallet + positions snapshot" },
-  { command: "wallet",     description: "Wallet, deploy amount, HiveMind status" },
-  { command: "positions",  description: "List open positions" },
-  { command: "pool",       description: "Detailed info for one open position" },
-  { command: "close",      description: "Close one position by index" },
-  { command: "closeall",   description: "Close all open positions" },
-  { command: "set",        description: "Set note/instruction on position" },
-  { command: "config",     description: "Show important runtime config" },
-  { command: "settings",   description: "Button menu for common config" },
-  { command: "setcfg",     description: "Update persisted config key" },
-  { command: "screen",     description: "Refresh deterministic candidate list" },
-  { command: "candidates", description: "Show latest cached candidates" },
-  { command: "deploy",     description: "Deploy candidate by cached index" },
-  { command: "briefing",   description: "Morning briefing" },
-  { command: "hive",       description: "HiveMind sync status" },
-  { command: "pause",      description: "Stop cron cycles" },
-  { command: "resume",     description: "Start cron cycles again" },
-  { command: "stop",       description: "Shut down agent" },
+  { command: "help",       description: "📖 Show all commands" },
+  { command: "status",     description: "📊 Wallet + positions snapshot" },
+  { command: "wallet",     description: "👛 Balance, deploy amount, HiveMind" },
+  { command: "positions",  description: "💧 List open positions" },
+  { command: "pool",       description: "🔎 Detailed info for one position" },
+  { command: "portfolio",  description: "📦 Multi-strategy portfolio status" },
+  { command: "briefing",   description: "☀️ Morning performance briefing" },
+  { command: "close",      description: "🔒 Close one position by index" },
+  { command: "closeall",   description: "🔒 Close all open positions" },
+  { command: "set",        description: "📝 Set note/instruction on position" },
+  { command: "compound",   description: "💰 Trigger fee compounding now" },
+  { command: "screen",     description: "🔍 Refresh candidate list" },
+  { command: "candidates", description: "🗂️ Show cached candidates" },
+  { command: "deploy",     description: "🚀 Deploy candidate by index" },
+  { command: "strategy",   description: "🎯 List / set / get LP strategies" },
+  { command: "config",     description: "⚙️ Runtime config snapshot" },
+  { command: "settings",   description: "🎛️ Button menu for config" },
+  { command: "setcfg",     description: "🔧 Update persisted config key" },
+  { command: "copylp",     description: "📋 Copy-LP status / scan" },
+  { command: "pump",       description: "🚀 Pump.fun sniper status / scan" },
+  { command: "hive",       description: "🧠 HiveMind sync status / pull" },
+  { command: "dashboard",  description: "📊 Web dashboard URL" },
+  { command: "pause",      description: "⏸ Stop cron cycles" },
+  { command: "resume",     description: "▶️ Resume cron cycles" },
+  { command: "deployoff",  description: "⏸ Stop auto-deploy (bot stays on)" },
+  { command: "deployon",   description: "▶️ Re-enable auto-deploy" },
+  { command: "stop",       description: "🛑 Shut down agent" },
 ];
 
 async function registerCommands() {
@@ -493,8 +501,47 @@ function fmtUsd(usd) {
 /**
  * Thin separator line.
  */
-const SEP = "───────────────────";
-const DOUBLE_SEP = "═══════════════════";
+export const SEP = "─────────────────────";
+export const DOUBLE_SEP = "━━━━━━━━━━━━━━━━━━━━━";
+export const DOT_SEP = "· · · · · · · · · · · · · · · · ·";
+
+/**
+ * Escape a string for safe use in Telegram HTML parse_mode.
+ * Only &, <, > need escaping per Bot API.
+ */
+export function escHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * Render a compact unicode progress/PnL bar.
+ * pct is clamped to [0,100]. Filled portion uses █, empty uses ░.
+ */
+export function progressBar(pct, width = 10) {
+  const p = Math.max(0, Math.min(100, Number(pct) || 0));
+  const filled = Math.round((p / 100) * width);
+  return "█".repeat(filled) + "░".repeat(width - filled);
+}
+
+/**
+ * Signed PnL bar centred on 0. Negative fills red side, positive green side.
+ * Used for at-a-glance position health.
+ */
+export function pnlBar(pnlPct, width = 8) {
+  const p = Number(pnlPct) || 0;
+  const mag = Math.min(Math.abs(p), 100);
+  const blocks = Math.round((mag / 100) * width);
+  if (p >= 0) return "▪".repeat(width) + " " + "▰".repeat(Math.max(1, blocks));
+  return "▱".repeat(Math.max(1, blocks)) + " " + "▪".repeat(width);
+}
+
+/**
+ * Export the PnL helpers so command handlers can build consistent cards.
+ */
+export { pnlEmoji, pnlSign, fmtUsd };
 
 export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, rangeCoverage, binStep, baseFee, strategy }) {
   if (hasActiveLiveMessage()) return;

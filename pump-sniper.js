@@ -373,18 +373,23 @@ export async function runSniperTick() {
  * Format sniper status for display.
  */
 export function formatPumpSniperStatus() {
-  if (!config.pumpSniper?.enabled) return "Pump.fun sniper: disabled";
+  const SEP_ = "─────────────────────";
+  const DSEP_ = "━━━━━━━━━━━━━━━━━━━━━";
+  if (!config.pumpSniper?.enabled) return "🚀 <b>Pump.fun sniper</b>: <i>disabled</i>";
 
   const cfg = config.pumpSniper;
   const tracked = Object.keys(state.tracked).length;
   const deployed = state.deployed.length;
   const withPool = Object.values(state.tracked).filter(t => t.poolAddress).length;
+  const scanning = !!_sniperPollTimer;
 
   return [
-    "🚀 Pump.fun → Meteora Sniper",
-    `Status: ${_sniperPollTimer ? "scanning" : "stopped"}`,
-    `Tracked: ${tracked} tokens | With pools: ${withPool} | Deployed: ${deployed}`,
-    `Interval: ${cfg.pollIntervalMs}ms | Min MC: $${cfg.minMarketCap}`,
-    `Strategy: ${cfg.strategy || config.strategy.strategy} | bins: ${cfg.bins_below ?? config.strategy.defaultBinsBelow}`,
+    `🚀 <b>PUMP.FUN → METEORA SNIPER</b>`,
+    DSEP_,
+    `${scanning ? "🟢" : "🔴"} Status: <b>${scanning ? "scanning" : "stopped"}</b>`,
+    SEP_,
+    `📡 Tracked: <b>${tracked}</b>  |  🏊 With pools: <b>${withPool}</b>  |  🚀 Deployed: <b>${deployed}</b>`,
+    `⏱️ Interval: <code>${cfg.pollIntervalMs}ms</code>  |  💰 Min MC: <code>$${cfg.minMarketCap}</code>`,
+    `🎯 Strategy: <code>${cfg.strategy || config.strategy.strategy}</code>  |  bins: <code>${cfg.bins_below ?? config.strategy.defaultBinsBelow}</code>`,
   ].join("\n");
 }

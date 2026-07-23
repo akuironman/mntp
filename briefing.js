@@ -31,31 +31,33 @@ export async function generateBriefing() {
   const perfSummary = getPerformanceSummary();
 
   // 5. Format Message
+  const DSEP = "━━━━━━━━━━━━━━━━━━━━━";
+  const SEP_ = "─────────────────────";
+  const pnlEmoji = totalPnLUsd > 0 ? "🟢" : totalPnLUsd < 0 ? "🔴" : "🟡";
   const lines = [
-    "☀️ <b>Morning Briefing</b> (Last 24h)",
-    "────────────────",
-    `<b>Activity:</b>`,
-    `📥 Positions Opened: ${openedLast24h.length}`,
-    `📤 Positions Closed: ${closedLast24h.length}`,
+    "☀️ <b>MORNING BRIEFING</b>  <i>(Last 24h)</i>",
+    DSEP,
+    `📊 <b>Activity</b>`,
+    `   📥 Opened: <b>${openedLast24h.length}</b>   |   📤 Closed: <b>${closedLast24h.length}</b>`,
     "",
-    `<b>Performance:</b>`,
-    `💰 Net PnL: ${totalPnLUsd >= 0 ? "+" : ""}$${totalPnLUsd.toFixed(2)}`,
-    `💎 Fees Earned: $${totalFeesUsd.toFixed(2)}`,
+    `💰 <b>Performance</b>`,
+    `   ${pnlEmoji} Net PnL: <code>${totalPnLUsd >= 0 ? "+" : ""}$${totalPnLUsd.toFixed(2)}</code>`,
+    `   💎 Fees earned: <code>$${totalFeesUsd.toFixed(2)}</code>`,
     perfLast24h.length > 0
-      ? `📈 Win Rate (24h): ${Math.round((perfLast24h.filter(p => p.pnl_usd > 0).length / perfLast24h.length) * 100)}%`
-      : "📈 Win Rate (24h): N/A",
+      ? `   📈 Win rate: <code>${Math.round((perfLast24h.filter(p => p.pnl_usd > 0).length / perfLast24h.length) * 100)}%</code>`
+      : "   📈 Win rate: <i>N/A</i>",
     "",
-    `<b>Lessons Learned:</b>`,
+    `💡 <b>Lessons Learned</b>`,
     lessonsLast24h.length > 0
-      ? lessonsLast24h.map(l => `• ${l.rule}`).join("\n")
-      : "• No new lessons recorded overnight.",
-    "",
-    `<b>Current Portfolio:</b>`,
-    `📂 Open Positions: ${openPositions.length}`,
+      ? lessonsLast24h.map(l => `   • ${l.rule}`).join("\n")
+      : "   <i>No new lessons recorded overnight.</i>",
+    SEP_,
+    `📂 <b>Current Portfolio</b>`,
+    `   Open positions: <b>${openPositions.length}</b>`,
     perfSummary
-      ? `📊 All-time PnL: $${perfSummary.total_pnl_usd.toFixed(2)} (${perfSummary.win_rate_pct}% win)`
+      ? `   📊 All-time PnL: <code>$${perfSummary.total_pnl_usd.toFixed(2)}</code>  <i>(${perfSummary.win_rate_pct}% win)</i>`
       : "",
-    "────────────────"
+    DSEP
   ];
 
   return lines.join("\n");

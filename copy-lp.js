@@ -294,13 +294,15 @@ export async function runCopyLPCycle() {
  * Format copy-LP status for display.
  */
 export function formatCopyLpStatus() {
-  if (!config.copyLp?.enabled) return "Copy LP: disabled";
+  const SEP_ = "─────────────────────";
+  if (!config.copyLp?.enabled) return "📋 <b>Copy LP</b>: <i>disabled</i>";
 
   return [
-    `Copy LP: enabled`,
-    `Tracked pools: ${state.deployedPools.length}`,
-    `Sources: TrackLP + Meridian`,
-    `Min win rate: ${config.copyLp.minWinRate ?? 70}%`,
-    `Max pools/cycle: ${config.copyLp.maxPools ?? 3}`,
+    `📋 <b>COPY LP</b>  <i>(enabled)</i>`,
+    SEP_,
+    `🏊 Tracked pools: <b>${state.deployedPools.length}</b>`,
+    `📡 Sources: <i>TrackLP + Meridian</i>`,
+    `🏆 Min win rate: <code>${config.copyLp.minWinRate ?? 70}%</code>`,
+    `📊 Max pools/cycle: <code>${config.copyLp.maxPools ?? 3}</code>`,
   ].join("\n");
 }

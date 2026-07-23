@@ -95,24 +95,29 @@ export function getCurrentPortfolioInfo() {
 /**
  * Format portfolio status for display.
  */
+const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const P_DOUBLE_SEP = "━━━━━━━━━━━━━━━━━━━━━";
+const P_SEP = "─────────────────────";
+
 export function formatPortfolioStatus() {
   const portfolio = getPortfolio();
-  if (!portfolio) return "No portfolio configured — using single strategy mode";
+  if (!portfolio) return "📦 <b>No portfolio configured</b>\n<i>Using single strategy mode.</i>";
 
   const active = getActiveStrategy();
   const info = getCurrentPortfolioInfo();
 
   const lines = [
-    `Portfolio: ${info.total} strategies | cycle ${info.cycle}`,
-    `Active: ${info.current.id} (${info.current.allocation}%)`,
-    `Next: ${info.next.id} (${info.next.allocation}%)`,
-    "",
-    "All strategies:",
+    `📦 <b>PORTFOLIO</b>  <i>(${info.total} strategies · cycle ${info.cycle})</i>`,
+    P_DOUBLE_SEP,
+    `🟢 Active: <b>${esc(info.current.id)}</b>  <code>${esc(info.current.allocation)}%</code>`,
+    `⏭ Next: <b>${esc(info.next.id)}</b>  <code>${esc(info.next.allocation)}%</code>`,
+    P_SEP,
+    `📋 <b>All strategies</b>`,
     ...portfolio.map((item, i) => {
-      const active_ = info.index === i ? " ← active" : "";
-      return `  ${i + 1}. ${item.id} — ${item.allocation}%${active_}`;
+      const marker = info.index === i ? "  ← active" : "";
+      return `   ${i + 1}. <code>${esc(item.id)}</code> — <b>${esc(item.allocation)}%</b>${marker}`;
     }),
-    ...(active ? [`\nDeploy type: ${active.is_active}`, `Config strategy: ${config.strategy.strategy}`] : []),
+    ...(active ? [P_SEP, `🎯 Deploy type: <code>${esc(active.is_active)}</code>`, `⚙️ Config strategy: <code>${esc(config.strategy.strategy)}</code>`] : []),
   ];
 
   return lines.join("\n");
