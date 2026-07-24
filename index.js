@@ -2049,8 +2049,10 @@ async function telegramHandler(msg) {
     if (liveMessage) await liveMessage.finalize(stripThink(content));
     else await sendMessage(stripThink(content));
   } catch (e) {
-    if (liveMessage) await liveMessage.fail(e.message).catch(() => {});
-    else await sendMessage(`Error: ${e.message}`).catch(() => {});
+    const clean = cleanErrorMessage(e.message);
+    log("telegram_error", `Handler failed: ${String(e.message).slice(0, 300)}`);
+    if (liveMessage) await liveMessage.fail(clean).catch(() => {});
+    else await sendMessage(`⚠️ ${clean}`).catch(() => {});
   } finally {
     busy = false;
     refreshPrompt();
@@ -2061,6 +2063,29 @@ async function telegramHandler(msg) {
 function fmtPct(value) {
   const n = Number(value);
   return Number.isFinite(n) ? `${n.toFixed(2)}%` : "?";
+}
+
+/**
+ * Turn a raw error message into a clean, user-friendly one-liner.
+ * Strips leaked HTML error pages (nginx/cloudflare 502/503/504) so the user
+ * never sees a wall of markup — maps them to a plain "provider unavailable" note.
+ */
+function cleanErrorMessage(raw) {
+  const msg = String(raw ?? "").trim();
+  if (!msg) return "unknown error";
+  // Detect leaked HTML gateway error pages
+  if (/<html|<\/html>|<head>|nginx|cloudflare/i.test(msg)) {
+    const codeMatch = msg.match(/\b(502|503|504|520|521|522|524)\b/);
+    const code = codeMatch ? codeMatch[1] : null;
+    const labels = {
+      "502": "Bad Gateway", "503": "Service Unavailable", "504": "Gateway Timeout",
+      "520": "Server Error", "521": "Server Down", "522": "Connection Timed Out", "524": "Timeout",
+    };
+    const label = code ? `${code} ${labels[code] || ""}`.trim() : "gateway error";
+    return `Provider temporarily unavailable (${label}). Please try again in a moment.`;
+  }
+  // Collapse whitespace and cap length
+  return msg.replace(/\s+/g, " ").slice(0, 400);
 }
 
 function getLoneCandidateSkipReason({ pool, sw, n, ti } = {}) {

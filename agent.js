@@ -148,6 +148,23 @@ function isThinkingModeToolChoiceError(error) {
 }
 
 /**
+ * Detect transient upstream gateway/overload errors that are worth retrying:
+ * 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout, 429/529 overload.
+ * These can arrive either as a thrown APIError (status/code) or as an HTML body
+ * from nginx (e.g. "502 Bad Gateway") when the LLM provider is down.
+ */
+function isTransientGatewayError(error) {
+  const status = Number(error?.status ?? error?.code ?? error?.response?.status ?? 0);
+  if ([408, 429, 502, 503, 504, 520, 521, 522, 524, 529].includes(status)) return true;
+  const message = String(error?.message || error?.error?.message || error || "");
+  if (/\b(502|503|504|520|521|522|524|529)\b/.test(message)) return true;
+  if (/bad gateway|service unavailable|gateway time-?out|too many requests|overloaded|temporarily unavailable/i.test(message)) return true;
+  // nginx / cloudflare HTML error pages leaking through
+  if (/<html|<\/html>|nginx|cloudflare/i.test(message) && /gateway|unavailable|error/i.test(message)) return true;
+  return false;
+}
+
+/**
  * Core ReAct agent loop.
  *
  * @param {string} goal - The task description for the agent
@@ -233,15 +250,37 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
             attempt -= 1;
             continue;
           }
+          // Transient upstream gateway errors (502/503/504/529, incl. nginx HTML pages)
+          // arrive here as a thrown APIError. Retry with backoff + fallback model
+          // instead of leaking the raw HTML error page to the user.
+          if (isTransientGatewayError(error)) {
+            if (attempt >= 2) {
+              log("agent", `Gateway error persisted after 3 attempts: ${String(error?.message || error).slice(0, 120)}`);
+              throw new Error("LLM provider is temporarily unavailable (gateway error). Please try again in a moment.");
+            }
+            if (attempt === 0 && usedModel !== FALLBACK_MODEL) {
+              usedModel = FALLBACK_MODEL;
+              log("agent", `Gateway error — switching to fallback model ${FALLBACK_MODEL}`);
+            } else {
+              const wait = (attempt + 1) * 5000;
+              log("agent", `Gateway error, retrying in ${wait / 1000}s (attempt ${attempt + 1}/3)`);
+              await new Promise((r) => setTimeout(r, wait));
+            }
+            continue;
+          }
           throw error;
         }
         if (response.choices?.length) break;
         const errCode = response.error?.code;
-        if (errCode === 502 || errCode === 503 || errCode === 529) {
+        if (errCode === 502 || errCode === 503 || errCode === 504 || errCode === 529) {
+          if (attempt >= 2) {
+            log("agent", `Provider error ${errCode} persisted after 3 attempts`);
+            break;
+          }
           const wait = (attempt + 1) * 5000;
-          if (attempt === 1 && usedModel !== FALLBACK_MODEL) {
+          if (attempt === 0 && usedModel !== FALLBACK_MODEL) {
             usedModel = FALLBACK_MODEL;
-            log("agent", `Switching to fallback model ${FALLBACK_MODEL}`);
+            log("agent", `Provider error ${errCode} — switching to fallback model ${FALLBACK_MODEL}`);
           } else {
             log("agent", `Provider error ${errCode}, retrying in ${wait / 1000}s (attempt ${attempt + 1}/3)`);
             await new Promise((r) => setTimeout(r, wait));
