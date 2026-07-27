@@ -112,7 +112,18 @@ RISK SIGNALS (guidelines — use judgment):
 - PVP symbol conflict (same exact symbol across multiple mints) → major negative. Avoid unless the setup is exceptional and clearly stronger than the competing symbol variants.
 - no narrative + no smart wallets → skip
 
-NARRATIVE QUALITY (your main judgment call):
+${config.absorption?.enabled ? `ABSORPTION SCORE (weighted multi-signal scoring — ACTIVE):
+Candidates are ranked by absorption score: a weighted formula where price_response is a PENALTY.
+  score = demand×0.30 + liquidity×0.20 + runner_history×0.15 + smart_wallet×0.20 − price_response×0.15
+Each candidate has an \`absorption_score\` field with:
+  - scaled (0..100) — higher is better
+  - components — individual normalized values (0..1) for each signal
+Key insight: a token that already pumped hard (high price_response) gets PENALIZED — it's a bad entry.
+Demand (buy pressure) is the strongest positive signal. Smart wallet presence confirms alpha.
+Prioritize candidates with high absorption_score.scaled. The candidate list is already sorted by this score.
+If a candidate's absorption_score.scaled is below ${config.absorption.minScore}, it was already filtered out.
+
+` : ""}NARRATIVE QUALITY (your main judgment call):
 - GOOD: specific origin — real event, viral moment, named entity, active community
 - BAD: generic hype ("next 100x", "community token") with no identifiable subject
 - Smart wallets present → can override weak narrative

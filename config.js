@@ -296,6 +296,32 @@ export const config = {
     feeSource: nonEmptyString(gmgnUserConfig.feeSource, u.gmgnFeeSource, "gmgn"),
   },
 
+  // ─── Absorption Score (weighted multi-signal scoring) ──────────
+  // Replaces threshold-based screening (if volume>x and holders>y => BUY)
+  // with a weighted formula where price_response is a PENALTY signal.
+  // score = demand*0.30 + liquidity*0.20 + runner_history*0.15
+  //         + smart_wallet*0.20 - price_response*0.15
+  absorption: {
+    enabled: u.absorptionEnabled ?? false,
+    minScore: Number(u.absorptionMinScore ?? 35),
+    weights: {
+      demand:         Number(u.absorptionWeightDemand ?? 0.30),
+      liquidity:      Number(u.absorptionWeightLiquidity ?? 0.20),
+      runner_history: Number(u.absorptionWeightRunner ?? 0.15),
+      smart_wallet:   Number(u.absorptionWeightSmartWallet ?? 0.20),
+      price_response: Number(u.absorptionWeightPriceResponse ?? -0.15),
+    },
+    targets: {
+      demandRatio:           Number(u.absorptionTargetDemandRatio ?? 0.60),
+      demandVolRatioProxy:   Number(u.absorptionTargetDemandVolProxy ?? 20),
+      liquidityGrowthPct:    Number(u.absorptionTargetLiquidityGrowth ?? 50),
+      liquidityLpCountProxy: Number(u.absorptionTargetLiquidityLpCount ?? 40),
+      priceMovePct:          Number(u.absorptionTargetPriceMove ?? 20),
+      runnerRange:           Number(u.absorptionTargetRunnerRange ?? 3),
+      smartWalletCount:      Number(u.absorptionTargetSmartWalletCount ?? 2),
+    },
+  },
+
   jupiter: {
     // Internal Jupiter Ultra settings; override by env only, do not expose in user-config.
     apiKey: process.env.JUPITER_API_KEY ?? "",

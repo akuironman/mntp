@@ -5,6 +5,7 @@ import { log } from "../logger.js";
 import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
 import { confirmIndicatorPreset } from "./chart-indicators.js";
 import { getAgentMeridianBase, getAgentMeridianHeaders } from "./agent-meridian.js";
+import { absorptionScore } from "../absorption-score.js";
 
 const DATAPI_JUP = "https://datapi.jup.ag/v1";
 
@@ -714,6 +715,37 @@ export async function getTopCandidates({ limit = 10 } = {}) {
     eligible.splice(0, eligible.length, ...confirmedEligible);
     if (eligible.length < before) {
       log("screening", `Indicator confirmation removed ${before - eligible.length} candidate(s)`);
+    }
+  }
+
+  // ─── Absorption Score (weighted multi-signal scoring) ──────────
+  // When enabled, compute absorption score for each eligible pool and re-sort.
+  // The score replaces the simple scoreCandidate() heuristic with a weighted
+  // formula: demand*0.30 + liquidity*0.20 + runner_history*0.15
+  // + smart_wallet*0.20 - price_response*0.15
+  // Pools below minScore are filtered out.
+  if (config.absorption?.enabled && eligible.length > 0) {
+    const minScore = Number(config.absorption.minScore ?? 35);
+    const opts = {
+      weights: config.absorption.weights,
+      targets: config.absorption.targets,
+    };
+    for (const pool of eligible) {
+      const result = absorptionScore(pool, {}, opts);
+      pool.absorption_score = result;
+    }
+    eligible.sort((a, b) => (b.absorption_score?.scaled ?? 0) - (a.absorption_score?.scaled ?? 0));
+    const before = eligible.length;
+    const filtered = eligible.filter((p) => (p.absorption_score?.scaled ?? 0) >= minScore);
+    if (filtered.length < before) {
+      const removed = eligible.filter((p) => (p.absorption_score?.scaled ?? 0) < minScore);
+      removed.forEach((p) => pushFilteredReason(filteredOut, p, `absorption score ${p.absorption_score?.scaled ?? 0} < minScore ${minScore}`));
+      eligible.splice(0, eligible.length, ...filtered);
+      log("screening", `Absorption score filter: ${before - filtered.length} pool(s) below minScore ${minScore}`);
+    }
+    if (eligible.length > 0) {
+      const top = eligible[0];
+      log("screening", `Absorption score top: ${top.name} = ${top.absorption_score?.scaled}/100 (demand=${(top.absorption_score?.components.demand * 100).toFixed(0)}% liq=${(top.absorption_score?.components.liquidity * 100).toFixed(0)}% runner=${(top.absorption_score?.components.runner_history * 100).toFixed(0)}% smart=${(top.absorption_score?.components.smart_wallet * 100).toFixed(0)}% price=${(top.absorption_score?.components.price_response * 100).toFixed(0)}%)`);
     }
   }
 

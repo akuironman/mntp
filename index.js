@@ -867,6 +867,33 @@ Summarize the current portfolio health, total fees earned, and performance of al
         const candidates = (top?.candidates || []).slice().sort((a, b) => degenScore(b, config.opportunity) - degenScore(a, config.opportunity));
         if (!candidates.length) return;
 
+        // ─── Absorption Score trigger path ────────────────────────
+        // When absorption scoring is enabled, a pool can also trigger via
+        // its absorption score clearing config.absorption.minScore.
+        // This runs alongside the degen score path — either one triggers.
+        if (config.absorption?.enabled) {
+          const absMin = Number(config.absorption.minScore ?? 35);
+          const absOpts = { weights: config.absorption.weights, targets: config.absorption.targets };
+          for (const c of candidates) {
+            if (c.absorption_score?.scaled != null && c.absorption_score.scaled >= absMin) {
+              log("cron", `[Opportunity] ${c.name} absorption ${c.absorption_score.scaled}/100 >= ${absMin} — triggering screening deploy decision`);
+              runScreeningCycle({ silent: true }).catch((e) => log("cron_error", `Opportunity-triggered screening failed: ${e.message}`));
+              return;
+            }
+            // Compute on-the-fly if not already attached (fast mode, no enrichment)
+            if (!c.absorption_score) {
+              const { absorptionScore } = await import("./absorption-score.js");
+              const result = absorptionScore(c, {}, absOpts);
+              c.absorption_score = result;
+              if (result.scaled >= absMin) {
+                log("cron", `[Opportunity] ${c.name} absorption ${result.scaled}/100 >= ${absMin} — triggering screening deploy decision`);
+                runScreeningCycle({ silent: true }).catch((e) => log("cron_error", `Opportunity-triggered screening failed: ${e.message}`));
+                return;
+              }
+            }
+          }
+        }
+
         const minScore = config.opportunity.minScore;
         const bonus = Number(config.opportunity.smartWalletScoreBonus ?? 0);
         const floor = minScore - bonus; // lowest degen that could qualify, only WITH a smart wallet

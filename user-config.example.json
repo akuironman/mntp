@@ -155,5 +155,20 @@
   "webDashboard": {
     "enabled": false,
     "port": 3333
-  }
+  },
+
+  "absorptionEnabled": false,
+  "absorptionMinScore": 35,
+  "absorptionWeightDemand": 0.30,
+  "absorptionWeightLiquidity": 0.20,
+  "absorptionWeightRunner": 0.15,
+  "absorptionWeightSmartWallet": 0.20,
+  "absorptionWeightPriceResponse": -0.15,
+  "absorptionTargetDemandRatio": 0.60,
+  "absorptionTargetDemandVolProxy": 20,
+  "absorptionTargetLiquidityGrowth": 50,
+  "absorptionTargetLiquidityLpCount": 40,
+  "absorptionTargetPriceMove": 20,
+  "absorptionTargetRunnerRange": 3,
+  "absorptionTargetSmartWalletCount": 2
 }
