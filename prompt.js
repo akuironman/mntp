@@ -123,7 +123,17 @@ Demand (buy pressure) is the strongest positive signal. Smart wallet presence co
 Prioritize candidates with high absorption_score.scaled. The candidate list is already sorted by this score.
 If a candidate's absorption_score.scaled is below ${config.absorption.minScore}, it was already filtered out.
 
-` : ""}NARRATIVE QUALITY (your main judgment call):
+` : ""}ABSORPTION HUNTER STRATEGY:
+When the active strategy is 'absorption_hunter', the entry decision is driven by absorption score, not TA.
+- Deploy ONLY if absorption_score.scaled >= 50
+- demand component must be >= 60% (strong buy pressure)
+- price_response component must be <= 40% (token must NOT have already pumped)
+- Spot 50/50 split, 35-45 total bins
+- TP 10%, SL -12%, trailing 5/2, max hold 24h
+- If absorption score drops below 30 on re-check → close regardless of PnL (signal invalidation)
+This is the ONLY strategy that uses demand/sell pressure as the primary entry signal.
+
+NARRATIVE QUALITY (your main judgment call):
 - GOOD: specific origin — real event, viral moment, named entity, active community
 - BAD: generic hype ("next 100x", "community token") with no identifiable subject
 - Smart wallets present → can override weak narrative
