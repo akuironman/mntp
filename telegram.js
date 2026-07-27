@@ -3,6 +3,7 @@ import { log } from "./logger.js";
 import { repoPath } from "./repo-root.js";
 
 const USER_CONFIG_PATH = repoPath("user-config.json");
+const OFFSET_FILE = repoPath(".telegram-offset");
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || null;
 const BASE  = TOKEN ? `https://api.telegram.org/bot${TOKEN}` : null;
@@ -14,7 +15,9 @@ const ALLOWED_USER_IDS = new Set(
 );
 
 let chatId = null;
-let _offset  = 0;
+let _offset  = (() => {
+  try { return parseInt(fs.readFileSync(OFFSET_FILE, "utf8").trim(), 10) || 0; } catch { return 0; }
+})();
 let _polling = false;
 let _liveMessageDepth = 0;
 let _warnedMissingChatId = false;
@@ -377,6 +380,7 @@ async function poll(onMessage) {
       const data = await res.json();
       for (const update of data.result || []) {
         _offset = update.update_id + 1;
+        try { fs.writeFileSync(OFFSET_FILE, String(_offset)); } catch {}
         const callback = update.callback_query;
         if (callback?.data && callback?.message) {
           const callbackMsg = {

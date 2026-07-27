@@ -1554,9 +1554,6 @@ async function telegramHandler(msg) {
   if (_managementBusy || _screeningBusy || busy) {
     if (_telegramQueue.length < 5) {
       _telegramQueue.push(msg);
-      sendMessage(`⏳ Queued (${_telegramQueue.length} in queue): "${text.slice(0, 60)}"`).catch(() => {});
-    } else {
-      sendMessage("Queue is full (5 messages). Wait for the agent to finish.").catch(() => {});
     }
     return;
   }
