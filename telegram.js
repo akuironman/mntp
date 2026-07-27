@@ -543,36 +543,113 @@ export function pnlBar(pnlPct, width = 8) {
  */
 export { pnlEmoji, pnlSign, fmtUsd };
 
-function formatDeployStrategy(strategy, strategyName) {
+function deployStrategyMeta(strategy, strategyName) {
   const deployType = String(strategy || "").trim().replaceAll("_", " ").toUpperCase();
-  if (strategyName && deployType) return `${strategyName} (${deployType})`;
-  return strategyName || deployType || null;
+  const label = strategyName && deployType ? `${strategyName} · ${deployType}` : strategyName || deployType || null;
+  const icon = deployType === "SPOT" ? "🟢" : deployType === "BID ASK" ? "🟣" : "🟠";
+  return { label, icon };
 }
 
-export function buildDeployNotification({ pair, amountSol, position, tx, priceRange, rangeCoverage, binStep, baseFee, strategy, strategyName }) {
-  const priceStr = priceRange
-    ? `📊 Price: <code>${priceRange.min < 0.0001 ? priceRange.min.toExponential(3) : priceRange.min.toFixed(6)}</code> → <code>${priceRange.max < 0.0001 ? priceRange.max.toExponential(3) : priceRange.max.toFixed(6)}</code>\n`
-    : "";
-  const coverageStr = rangeCoverage
-    ? `📐 Range: ${fmtPct(rangeCoverage.downside_pct)} ↓ | ${fmtPct(rangeCoverage.upside_pct)} ↑ | ${fmtPct(rangeCoverage.width_pct)} total\n`
-    : "";
-  const poolStr = (binStep || baseFee)
-    ? `⚙️ Bin step: <code>${binStep ?? "?"}</code>  |  Fee: <code>${baseFee != null ? baseFee + "%" : "?"}</code>\n`
-    : "";
-  const strategyLabel = formatDeployStrategy(strategy, strategyName);
-  const stratStr = strategyLabel ? `🎯 Strategy: <code>${strategyLabel}</code>\n` : "";
-  return (
-    `🚀 <b>NEW POSITION DEPLOYED</b>\n` +
-    `${DOUBLE_SEP}\n` +
-    `💧 Pair: <b>${pair}</b>\n` +
-    `💰 Amount: <code>${amountSol} SOL</code>\n` +
-    stratStr +
-    priceStr +
-    coverageStr +
-    poolStr +
-    `📍 Position: <code>${position?.slice(0, 8)}…</code>\n` +
-    `🔗 Tx: <code>${tx?.slice(0, 16)}…</code>`
+function formatPair(pair) {
+  const raw = String(pair || "Unknown pair").trim();
+  const separator = raw.lastIndexOf("-");
+  return separator > 0 ? `${raw.slice(0, separator)} / ${raw.slice(separator + 1)}` : raw;
+}
+
+function formatDeployPrice(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.abs(n) < 0.0001 ? n.toExponential(3) : n.toFixed(6);
+}
+
+function shortAddress(value) {
+  const raw = String(value || "");
+  if (raw.length <= 10) return raw;
+  return `${raw.slice(0, 4)}…${raw.slice(-4)}`;
+}
+
+function explorerLink(kind, value, label) {
+  if (!value) return null;
+  const raw = String(value);
+  const path = kind === "account" ? "account" : "tx";
+  const url = `https://solscan.io/${path}/${encodeURIComponent(raw)}`;
+  return `<a href="${url}">${label}  ${escHtml(shortAddress(raw))} ↗</a>`;
+}
+
+export function buildDeployNotification({
+  pair,
+  amountSol,
+  position,
+  tx,
+  priceRange,
+  rangeCoverage,
+  binRange,
+  binsBelow,
+  binsAbove,
+  binStep,
+  baseFee,
+  strategy,
+  strategyName,
+  status,
+}) {
+  const sections = [];
+  const strategyMeta = deployStrategyMeta(strategy, strategyName);
+  const capital = Number(amountSol);
+  const capitalLabel = Number.isFinite(capital) ? capital.toFixed(3) : "?";
+
+  sections.push(
+    `🚀 <b>NEW POSITION DEPLOYED</b>\n${DOUBLE_SEP}`,
+    `💧 <b>${escHtml(formatPair(pair))}</b>${strategyMeta.label ? `\n${strategyMeta.icon} <code>${escHtml(strategyMeta.label)}</code>` : ""}`,
+    `💰 <b>CAPITAL</b>\n◎ <code>${capitalLabel} SOL</code>`,
   );
+
+  const minPrice = formatDeployPrice(priceRange?.min);
+  const maxPrice = formatDeployPrice(priceRange?.max);
+  if (minPrice && maxPrice) {
+    const coverage = rangeCoverage
+      ? `\n↓ ${fmtPct(rangeCoverage.downside_pct)} · ↑ ${fmtPct(rangeCoverage.upside_pct)} · Width ${fmtPct(rangeCoverage.width_pct)}`
+      : "";
+    sections.push(
+      `📐 <b>POSITION RANGE</b>\n` +
+      `<code>${minPrice} ├━━━━━━●┤ ${maxPrice}</code>${coverage}`,
+    );
+  }
+
+  const derivedBelow = Number.isFinite(Number(binsBelow))
+    ? Number(binsBelow)
+    : Number.isFinite(Number(binRange?.active)) && Number.isFinite(Number(binRange?.min))
+      ? Number(binRange.active) - Number(binRange.min)
+      : null;
+  const derivedAbove = Number.isFinite(Number(binsAbove))
+    ? Number(binsAbove)
+    : Number.isFinite(Number(binRange?.active)) && Number.isFinite(Number(binRange?.max))
+      ? Number(binRange.max) - Number(binRange.active)
+      : null;
+  const hasPoolDetails = binStep != null || baseFee != null || derivedBelow != null || derivedAbove != null;
+  if (hasPoolDetails) {
+    const poolLines = [];
+    if (binStep != null || baseFee != null) {
+      poolLines.push(`Bin step <code>${escHtml(binStep ?? "?")}</code> · Base fee <code>${escHtml(baseFee != null ? `${baseFee}%` : "?")}</code>`);
+    }
+    if (derivedBelow != null || derivedAbove != null) {
+      const below = derivedBelow ?? 0;
+      const above = derivedAbove ?? 0;
+      poolLines.push(`Bins <code>${below} below · ${above} above · ${below + above + 1} total</code>`);
+    }
+    sections.push(`⚙️ <b>METEORA DLMM</b>\n${poolLines.join("\n")}`);
+  }
+
+  const chainLinks = [
+    explorerLink("account", position, "Position"),
+    explorerLink("tx", tx, "Transaction"),
+  ].filter(Boolean);
+  if (chainLinks.length) sections.push(`🔗 <b>ON-CHAIN</b>\n${chainLinks.join("\n")}`);
+
+  const normalizedStatus = String(status || "submitted").trim().toUpperCase();
+  const confirmed = normalizedStatus === "CONFIRMED" || normalizedStatus === "FINALIZED";
+  sections.push(`${confirmed ? "✅" : "⏳"} <b>${escHtml(normalizedStatus)}</b> · Solana Mainnet`);
+
+  return sections.join("\n\n");
 }
 
 export async function notifyDeploy(details) {

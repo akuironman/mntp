@@ -685,7 +685,22 @@ export async function executeTool(name, args) {
         const selectedStrategyName = selectedStrategy?.lp_strategy === actualDeployStrategy
           ? selectedStrategy.name
           : null;
-        notifyDeploy({ pair: result.pool_name || args.pool_name || args.pool_address?.slice(0, 8), amountSol: result.amount_y ?? args.amount_y ?? args.amount_sol ?? 0, position: result.position, tx: result.txs?.[0] ?? result.tx, priceRange: result.price_range, rangeCoverage: result.range_coverage, binStep: result.bin_step, baseFee: result.base_fee, strategy: actualDeployStrategy, strategyName: selectedStrategyName }).catch(() => {});
+        await notifyDeploy({
+          pair: result.pool_name || args.pool_name || args.pool_address?.slice(0, 8),
+          amountSol: result.amount_y ?? args.amount_y ?? args.amount_sol ?? 0,
+          position: result.position,
+          tx: result.txs?.[0] ?? result.tx,
+          priceRange: result.price_range,
+          rangeCoverage: result.range_coverage,
+          binRange: result.bin_range,
+          binsBelow: result.bin_range?.bins_below,
+          binsAbove: result.bin_range?.bins_above,
+          binStep: result.bin_step,
+          baseFee: result.base_fee,
+          strategy: actualDeployStrategy,
+          strategyName: selectedStrategyName,
+          status: "confirmed",
+        }).catch(() => {});
       } else if (name === "close_position") {
         notifyClose({ pair: result.pool_name || args.position_address?.slice(0, 8), pnlUsd: result.pnl_usd ?? 0, pnlPct: result.pnl_pct ?? 0 }).catch(() => {});
         // Note low-yield closes in pool memory so screener avoids redeploying

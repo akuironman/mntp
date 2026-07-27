@@ -1766,25 +1766,9 @@ async function telegramHandler(msg) {
   if (deployMatch) {
     try {
       const idx = parseInt(deployMatch[1]) - 1;
-      const { candidate, result, deployAmount, binsBelow } = await deployLatestCandidate(idx);
-      const coverage = result.range_coverage
-        ? `📐 Range: <code>${fmtPct(result.range_coverage.downside_pct)}</code> ↓  |  <code>${fmtPct(result.range_coverage.upside_pct)}</code> ↑`
-        : `🎯 Strategy: <code>${escHtml(config.strategy.strategy)}</code>  |  binsBelow: <code>${escHtml(binsBelow)}</code>`;
-      const activeStrategy = getActiveStrategy();
-      const actualDeployType = result.strategy || config.strategy.strategy;
-      const strategyLabel = activeStrategy?.lp_strategy === actualDeployType
-        ? `${activeStrategy.name} (${actualDeployType.replaceAll("_", " ").toUpperCase()})`
-        : actualDeployType.replaceAll("_", " ").toUpperCase();
-      await sendHTML([
-        `🚀 <b>POSITION DEPLOYED</b>`,
-        DOUBLE_SEP,
-        `💧 Pair: <b>${escHtml(candidate.name)}</b>`,
-        `💰 Amount: <code>${escHtml(deployAmount)} SOL</code>`,
-        `🎯 Strategy: <code>${escHtml(strategyLabel)}</code>`,
-        coverage,
-        `📍 Position: <code>${escHtml(result.position || "n/a")}</code>`,
-        result.txs?.length ? `🔗 Tx: <code>${escHtml(result.txs[0]?.slice(0, 16))}…</code>` : null,
-      ].filter(Boolean).join("\n")).catch(() => {});
+      // executeTool emits the canonical premium deploy notification after the
+      // confirmed transaction. Do not send a second, divergent card here.
+      await deployLatestCandidate(idx);
     } catch (e) {
       await sendHTML(`❌ <b>Deploy failed</b>\n${SEP}\n<i>${escHtml(e.message)}</i>`).catch(() => {});
     }
