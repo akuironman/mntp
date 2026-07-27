@@ -548,6 +548,63 @@ const DEFAULT_STRATEGIES = {
     best_for: "Highest-consistency strategy in the library. Strict 4-gate entry, conservative single-sided SOL, tight TP/SL, time-based exit. Designed for steady fee farming on quality tokens. NOT a guaranteed winrate - market conditions always apply - but engineered for consistency over speculation. Use with the largest position sizes you can afford on quality pools.",
     raw: "Steady Grind - high-consistency strategy via strict screening + conservative sizing + early exits. No guaranteed winrate; designed for capital preservation and steady fee income.",
   },
+
+  // ─── Absorption Hunter ───────────────────────────────────────
+  // Author: SUPERAGENT // Berakxz
+  // Core philosophy: use ABSORPTION SCORE (demand-weighted) as the primary
+  // entry signal instead of classical TA. The absorption score formula:
+  //   demand*0.30 + liquidity*0.20 + runner_history*0.15
+  //   + smart_wallet*0.20 - price_response*0.15
+  // Key insight: price_response is SUBTRACTED — tokens that already pumped
+  // hard get penalized (bad entry). Demand (buy pressure) is the strongest
+  // positive signal. Requires absorptionEnabled: true in config.
+  absorption_hunter: {
+    id: "absorption_hunter",
+    name: "Absorption Hunter (Demand-Weighted Entry)",
+    author: "SUPERAGENT // Berakxz",
+    author_url: "https://x.com/Berakxz",
+    lp_strategy: "spot",
+    token_criteria: {
+      min_mcap: 200000,
+      min_holders: 300,
+      min_fee_tvl_ratio_4h: 0.3,
+      min_volume_4h: 3000,
+      requires_organic_score: true,
+      requires_narrative: true,
+      min_absorption_score: 50,
+      notes: "Core signal = ABSORPTION SCORE (demand-weighted). Token must have absorption_score.scaled >= 50 (0-100 scale). This is the only strategy that uses demand/sell pressure as the primary entry signal, not TA. The absorption score formula: demand*0.30 + liquidity*0.20 + runner_history*0.15 + smart_wallet*0.20 - price_response*0.15. Tokens that already pumped hard (high price_response) get penalized. Tokens with strong buy pressure (demand) and smart wallet presence get boosted. Requires absorptionEnabled: true in config.",
+    },
+    entry: {
+      condition: "THREE-GATE entry, all must pass: (1) Absorption score >= 50/100. (2) demand component >= 60%. (3) price_response component <= 40%. Optional: smart_wallet component >= 50% if smart wallets are tracked.",
+      single_side: null,
+      balanced: true,
+      indicator_preset: "rsi_plus_supertrend",
+      indicator_timeframe: "15m",
+      rsi_overbought_limit: 75,
+      notes: "Entry is driven by ABSORPTION SCORE, not TA indicators. TA (supertrend/RSI) is a secondary confirmation only. Deploy SPOT with balanced 50/50 split. Thesis: tokens with high absorption = strong buy pressure + LP conviction + smart money present + NOT already pumped = early entry before the move.",
+    },
+    range: {
+      type: "custom",
+      bins_below_pct: 50,
+      bins_above_pct: 50,
+      min_bins_below: 20,
+      max_bins_above: 20,
+      min_total_bins: 35,
+      max_total_bins: 45,
+      notes: "BALANCED 50/50 spot, 35-45 total bins. Medium-tight range for good fee density. Wide enough to survive volatility, tight enough to earn meaningful fees.",
+    },
+    exit: {
+      take_profit_pct: 10,
+      stop_loss_pct: 12,
+      trailing_tp: true,
+      trailing_trigger_pct: 5,
+      trailing_drop_pct: 2,
+      max_hold_hours: 24,
+      notes: "Balanced exits: (1) TP at +10%. (2) SL at -12%. (3) Trailing TP: activate at +5%, trail at 2% drop from peak. (4) Max hold 24h — absorption signals decay. (5) Re-evaluate: if absorption score drops below 30 on re-check, close regardless of PnL (signal invalidation).",
+    },
+    best_for: "Tokens with strong buy pressure (demand) that have NOT yet pumped significantly. Catches the accumulation phase before the move. Requires absorptionEnabled: true in config. Best paired with Darwinian learning — the system will auto-tune which absorption components predict profit.",
+    raw: "Absorption Hunter by SUPERAGENT/Berakxz — demand-weighted entry using absorption score as primary signal. Entry: absorption >= 50, demand >= 60%, price_response <= 40%. Spot 50/50, 35-45 bins. TP 10%, SL 12%, trailing 5/2, max 24h. Requires absorptionEnabled: true.",
+  },
 };
 
 function ensureDefaultStrategies() {
