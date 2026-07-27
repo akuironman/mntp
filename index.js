@@ -1770,11 +1770,17 @@ async function telegramHandler(msg) {
       const coverage = result.range_coverage
         ? `📐 Range: <code>${fmtPct(result.range_coverage.downside_pct)}</code> ↓  |  <code>${fmtPct(result.range_coverage.upside_pct)}</code> ↑`
         : `🎯 Strategy: <code>${escHtml(config.strategy.strategy)}</code>  |  binsBelow: <code>${escHtml(binsBelow)}</code>`;
+      const activeStrategy = getActiveStrategy();
+      const actualDeployType = result.strategy || config.strategy.strategy;
+      const strategyLabel = activeStrategy?.lp_strategy === actualDeployType
+        ? `${activeStrategy.name} (${actualDeployType.replaceAll("_", " ").toUpperCase()})`
+        : actualDeployType.replaceAll("_", " ").toUpperCase();
       await sendHTML([
         `🚀 <b>POSITION DEPLOYED</b>`,
         DOUBLE_SEP,
         `💧 Pair: <b>${escHtml(candidate.name)}</b>`,
         `💰 Amount: <code>${escHtml(deployAmount)} SOL</code>`,
+        `🎯 Strategy: <code>${escHtml(strategyLabel)}</code>`,
         coverage,
         `📍 Position: <code>${escHtml(result.position || "n/a")}</code>`,
         result.txs?.length ? `🔗 Tx: <code>${escHtml(result.txs[0]?.slice(0, 16))}…</code>` : null,

@@ -543,8 +543,13 @@ export function pnlBar(pnlPct, width = 8) {
  */
 export { pnlEmoji, pnlSign, fmtUsd };
 
-export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, rangeCoverage, binStep, baseFee, strategy }) {
-  if (hasActiveLiveMessage()) return;
+function formatDeployStrategy(strategy, strategyName) {
+  const deployType = String(strategy || "").trim().replaceAll("_", " ").toUpperCase();
+  if (strategyName && deployType) return `${strategyName} (${deployType})`;
+  return strategyName || deployType || null;
+}
+
+export function buildDeployNotification({ pair, amountSol, position, tx, priceRange, rangeCoverage, binStep, baseFee, strategy, strategyName }) {
   const priceStr = priceRange
     ? `📊 Price: <code>${priceRange.min < 0.0001 ? priceRange.min.toExponential(3) : priceRange.min.toFixed(6)}</code> → <code>${priceRange.max < 0.0001 ? priceRange.max.toExponential(3) : priceRange.max.toFixed(6)}</code>\n`
     : "";
@@ -554,8 +559,9 @@ export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, 
   const poolStr = (binStep || baseFee)
     ? `⚙️ Bin step: <code>${binStep ?? "?"}</code>  |  Fee: <code>${baseFee != null ? baseFee + "%" : "?"}</code>\n`
     : "";
-  const stratStr = strategy ? `🎯 Strategy: <code>${strategy}</code>\n` : "";
-  await sendHTML(
+  const strategyLabel = formatDeployStrategy(strategy, strategyName);
+  const stratStr = strategyLabel ? `🎯 Strategy: <code>${strategyLabel}</code>\n` : "";
+  return (
     `🚀 <b>NEW POSITION DEPLOYED</b>\n` +
     `${DOUBLE_SEP}\n` +
     `💧 Pair: <b>${pair}</b>\n` +
@@ -567,6 +573,11 @@ export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, 
     `📍 Position: <code>${position?.slice(0, 8)}…</code>\n` +
     `🔗 Tx: <code>${tx?.slice(0, 16)}…</code>`
   );
+}
+
+export async function notifyDeploy(details) {
+  if (hasActiveLiveMessage()) return;
+  await sendHTML(buildDeployNotification(details));
 }
 
 export async function notifyClose({ pair, pnlUsd, pnlPct, strategy }) {
