@@ -361,6 +361,19 @@ switch (subcommand) {
         mint ? getTokenNarrative({ mint }) : Promise.resolve(null),
       ]);
       const ti = tokenInfo.status === "fulfilled" ? tokenInfo.value?.results?.[0] : null;
+
+      // Recompute absorption score with enrichment data if enabled
+      let absorption = null;
+      const { config } = await import("./config.js");
+      if (config.absorption?.enabled) {
+        const { absorptionScore } = await import("./absorption-score.js");
+        const sw = smartWallets.status === "fulfilled" ? smartWallets.value : null;
+        absorption = absorptionScore(pool, { smart_wallets: sw, token_info: ti }, {
+          weights: config.absorption.weights,
+          targets: config.absorption.targets,
+        });
+      }
+
       enriched.push({
         pool: pool.pool,
         name: pool.name,
@@ -376,6 +389,7 @@ switch (subcommand) {
         price_change_pct: pool.price_change_pct,
         active_bin: activeBin.status === "fulfilled" ? activeBin.value?.binId : null,
         smart_wallets: smartWallets.status === "fulfilled" ? (smartWallets.value?.in_pool || []).map(w => w.name) : [],
+        absorption_score: absorption,
         token: {
           mint,
           symbol: pool.base?.symbol,

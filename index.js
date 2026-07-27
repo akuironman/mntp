@@ -43,6 +43,7 @@ import { checkSmartWalletsOnPool } from "./smart-wallets.js";
 import { getTokenNarrative, getTokenInfo } from "./tools/token.js";
 import { stageSignals } from "./signal-tracker.js";
 import { getWeightsSummary } from "./signal-weights.js";
+import { absorptionScore } from "./absorption-score.js";
 import { bootstrapHiveMind, ensureAgentId, getHiveMindPullMode, isHiveMindEnabled, pullHiveMindLessons, pullHiveMindPresets, registerHiveMindAgent, startHiveMindBackgroundSync } from "./hivemind.js";
 import { appendDecision } from "./decision-log.js";
 import { runCompoundCycle } from "./auto-compound.js";
@@ -607,6 +608,21 @@ export async function runScreeningCycle({ silent = false } = {}) {
       const netBuyers = ti?.stats_1h?.net_buyers;
       const activeBin = activeBinResults[i]?.status === "fulfilled" ? activeBinResults[i].value?.binId : null;
 
+      // Recompute absorption score with FULL enrichment data (smart wallets + token stats)
+      let absLine = null;
+      if (config.absorption?.enabled) {
+        const enrichment = {
+          smart_wallets: sw,
+          token_info: ti,
+        };
+        const absResult = absorptionScore(pool, enrichment, {
+          weights: config.absorption.weights,
+          targets: config.absorption.targets,
+        });
+        pool.absorption_score = absResult; // overwrite fast-mode score with enriched score
+        absLine = `  absorption_score: ${absResult.scaled}/100 (demand=${(absResult.components.demand * 100).toFixed(0)}% liq=${(absResult.components.liquidity * 100).toFixed(0)}% runner=${(absResult.components.runner_history * 100).toFixed(0)}% smart=${(absResult.components.smart_wallet * 100).toFixed(0)}% price_penalty=${(absResult.components.price_response * 100).toFixed(0)}%)`;
+      }
+
       const pvpLine = pool.is_pvp
         ? `  pvp: HIGH — rival ${pool.pvp_rival_name || pool.pvp_symbol} (${pool.pvp_rival_mint?.slice(0, 8)}...) has pool ${pool.pvp_rival_pool?.slice(0, 8)}..., tvl=$${pool.pvp_rival_tvl}, holders=${pool.pvp_rival_holders}, fees=${pool.pvp_rival_fees}SOL`
         : null;
@@ -616,6 +632,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
         `  metrics: bin_step=${pool.bin_step}, fee_pct=${pool.fee_pct}%, fee_tvl=${pool.fee_active_tvl_ratio}, vol=$${pool.volume_window}, tvl=$${pool.tvl ?? pool.active_tvl}, volatility_${pool.volatility_timeframe || "30m"}=${pool.volatility}, mcap=$${pool.mcap}, organic=${pool.organic_score}${pool.token_age_hours != null ? `, age=${pool.token_age_hours}h` : ""}`,
         `  audit: top10=${top10Pct}%, bots=${botPct}%, fees=${feesSol}SOL${launchpad ? `, launchpad=${launchpad}` : ""}`,
         pvpLine,
+        absLine,
         `  smart_wallets: ${sw?.in_pool?.length ?? 0} present${sw?.in_pool?.length ? ` → CONFIDENCE BOOST (${sw.in_pool.map(w => w.name).join(", ")})` : ""}`,
         activeBin != null ? `  active_bin: ${activeBin}` : null,
         priceChange != null ? `  1h: price${priceChange >= 0 ? "+" : ""}${priceChange}%, net_buyers=${netBuyers ?? "?"}` : null,
@@ -636,6 +653,14 @@ export async function runScreeningCycle({ silent = false } = {}) {
           smart_wallets_present: (sw?.in_pool?.length ?? 0) > 0,
           narrative_quality:     n?.narrative ? "present" : "absent",
           volatility:            pool.volatility            ?? null,
+          // Absorption score components — enables Darwinian learning of which
+          // absorption signals actually predict profitable positions
+          absorption_scaled:     pool.absorption_score?.scaled          ?? null,
+          absorption_demand:     pool.absorption_score?.components?.demand          ?? null,
+          absorption_liquidity:  pool.absorption_score?.components?.liquidity       ?? null,
+          absorption_runner:     pool.absorption_score?.components?.runner_history  ?? null,
+          absorption_smart:      pool.absorption_score?.components?.smart_wallet    ?? null,
+          absorption_price_resp: pool.absorption_score?.components?.price_response  ?? null,
         });
       }
 
@@ -882,7 +907,6 @@ Summarize the current portfolio health, total fees earned, and performance of al
             }
             // Compute on-the-fly if not already attached (fast mode, no enrichment)
             if (!c.absorption_score) {
-              const { absorptionScore } = await import("./absorption-score.js");
               const result = absorptionScore(c, {}, absOpts);
               c.absorption_score = result;
               if (result.scaled >= absMin) {

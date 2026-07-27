@@ -32,6 +32,14 @@ const SIGNAL_NAMES = [
   "entry_mcap",
   "entry_tvl",
   "entry_volume",
+  // Absorption score components — enables Darwinian learning of which
+  // absorption signals actually predict profitable positions
+  "absorption_scaled",
+  "absorption_demand",
+  "absorption_liquidity",
+  "absorption_runner",
+  "absorption_smart",
+  "absorption_price_resp",
 ];
 
 const DEFAULT_WEIGHTS = Object.fromEntries(SIGNAL_NAMES.map((s) => [s, 1.0]));
@@ -44,6 +52,13 @@ const HIGHER_IS_BETTER = new Set([
   "holder_count",
   "study_win_rate",
   "hive_consensus",
+  // Absorption: higher scaled/demand/liquidity/runner/smart = better
+  "absorption_scaled",
+  "absorption_demand",
+  "absorption_liquidity",
+  "absorption_runner",
+  "absorption_smart",
+  // absorption_price_resp is NOT here — higher = worse (bigger price move = penalty)
 ]);
 
 // Boolean signals — compared by win rate when present vs absent

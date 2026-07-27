@@ -51,6 +51,7 @@ Use this as the primary tool for finding new LP opportunities.`,
       description: `Get the top pre-scored pool candidates for deployment review.
 All filtering, scoring, and rule-checking is done in code — no analysis needed.
 Returns the top N eligible pools ranked by score (fee/TVL, organic, stability, volume).
+When absorption scoring is enabled, pools are also ranked by absorption_score (weighted multi-signal: demand, liquidity, runner_history, smart_wallet, price_response penalty).
 Each pool includes a score (0-100) and has already passed all hard disqualifiers.
 Use this instead of discover_pools for screening cycles.
 If this returns one candidate, still judge whether it is actually worth deploying; one weak candidate should be skipped.`,
