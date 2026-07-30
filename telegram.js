@@ -167,11 +167,13 @@ export async function sendHTML(html) {
   return postTelegram("sendMessage", { text: html.slice(0, 4096), parse_mode: "HTML" });
 }
 
-export async function editMessage(text, messageId) {
+export async function editMessage(text, messageId, { parseMode = null } = {}) {
   if (!TOKEN || !chatId || !messageId) return null;
   return postTelegram("editMessageText", {
     message_id: messageId,
     text: String(text).slice(0, 4096),
+    ...(parseMode ? { parse_mode: parseMode } : {}),
+    disable_web_page_preview: true,
   });
 }
 
@@ -304,11 +306,11 @@ export async function createLiveMessage(title, intro = "Starting...") {
     state.flushRequested = false;
     const text = render();
     if (!state.messageId) {
-      const sent = await sendMessage(text);
+      const sent = await sendHTML(text);
       state.messageId = sent?.result?.message_id ?? null;
       return;
     }
-    await editMessage(text, state.messageId);
+    await editMessage(text, state.messageId, { parseMode: "HTML" });
   }
 
   function scheduleFlush(delay = 300) {
