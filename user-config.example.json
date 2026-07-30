@@ -11,9 +11,9 @@
   "minSolToOpen": 0.55,
   "maxDeployAmount": 50,
   "gasReserve": 0.2,
-  "positionSizePct": 0.35,
+  "positionSizePct": 0.15,
 
-  "strategy": "bid_ask",
+  "strategy": "spot",
   "minBinsBelow": 35,
   "maxBinsBelow": 69,
   "defaultBinsBelow": 69,
@@ -51,7 +51,7 @@
   "oorCooldownTriggerCount": 3,
   "oorCooldownHours": 12,
   "minVolumeToRebalance": 1000,
-  "stopLossPct": -50,
+  "stopLossPct": -15,
   "takeProfitPct": 5,
   "minFeePerTvl24h": 7,
   "minAgeBeforeYieldCheck": 60,
@@ -157,8 +157,8 @@
     "port": 3333
   },
 
-  "absorptionEnabled": false,
-  "absorptionMinScore": 35,
+  "absorptionEnabled": true,
+  "absorptionMinScore": 55,
   "absorptionWeightDemand": 0.30,
   "absorptionWeightLiquidity": 0.20,
   "absorptionWeightRunner": 0.15,

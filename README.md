@@ -506,6 +506,17 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `trailingDropPct` | `1.5` | Close when PnL drops this % from peak |
 | `strategy` | `bid_ask` | LP strategy: `spot`, `bid_ask`, or `curve` |
 
+### Regime Adaptive Spot
+
+Set the active strategy to `regime_adaptive_spot` in the strategy library. The
+The deterministic gate rejects pools with missing volatility, fee/volume decay,
+recent overextension, or a clear downtrend before the LLM can deploy. Accepted
+regimes select a range plan automatically: accumulation `24/16`, range `20/20`,
+trending `28/12`, and high volatility `55/25` bins below/above. The plan is
+stored in the candidate and the direct screening deploy path uses it.
+
+Use `npm run test:strategy` to exercise the classifier without RPC.
+
 ### Schedule
 
 | Field | Default | Description |

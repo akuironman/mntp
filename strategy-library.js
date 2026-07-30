@@ -605,6 +605,49 @@ const DEFAULT_STRATEGIES = {
     best_for: "Tokens with strong buy pressure (demand) that have NOT yet pumped significantly. Catches the accumulation phase before the move. Requires absorptionEnabled: true in config. Best paired with Darwinian learning — the system will auto-tune which absorption components predict profit.",
     raw: "Absorption Hunter by SUPERAGENT/Berakxz — demand-weighted entry using absorption score as primary signal. Entry: absorption >= 50, demand >= 60%, price_response <= 40%. Spot 50/50, 35-45 bins. TP 10%, SL 12%, trailing 5/2, max 24h. Requires absorptionEnabled: true.",
   },
+
+  // ─── Regime Adaptive Spot ─────────────────────────────────────
+  // Deterministic market-regime selection. The classifier lives in
+  // regime-adaptive.js and is intentionally separate from the LLM.
+  regime_adaptive_spot: {
+    id: "regime_adaptive_spot",
+    name: "Regime Adaptive Spot",
+    author: "meridian",
+    lp_strategy: "spot",
+    token_criteria: {
+      min_mcap: 500000,
+      min_age_days: 3,
+      min_holders: 500,
+      min_fee_tvl_ratio_4h: 0.15,
+      min_volume_24h: 5000,
+      requires_organic_score: true,
+      max_top10_holder_pct: 40,
+      notes: "Uses deterministic regime gates. Rejects decaying, downtrending, overextended, and insufficient-data pools before the LLM can deploy.",
+    },
+    entry: {
+      condition: "Only deploy when regime-adaptive classifier returns ACCUMULATION, RANGE, TRENDING, or HIGH_VOLATILITY and all screening gates pass.",
+      balanced: false,
+      indicator_preset: "rsi_plus_supertrend",
+      indicator_timeframe: "15m",
+      notes: "The range plan is selected from observed volatility, fee trend, volume trend, price response, and absorption score.",
+    },
+    range: {
+      type: "dynamic",
+      notes: "ACCUMULATION 24/16, RANGE 20/20, TRENDING 28/12, HIGH_VOLATILITY 55/25 bins below/above.",
+    },
+    exit: {
+      take_profit_pct: 8,
+      stop_loss_pct: -15,
+      trailing_tp: true,
+      trailing_trigger_pct: 4,
+      trailing_drop_pct: 1.5,
+      out_of_range_wait_minutes: 15,
+      max_hold_hours: 72,
+      notes: "Snapshot these values at deployment. Re-evaluate rather than blindly reseeding after OOR.",
+    },
+    best_for: "Defensive DLMM operation across changing market regimes; prioritizes avoiding bad entries over maximizing deployment frequency.",
+    raw: "Regime Adaptive Spot — deterministic regime gates and dynamic range selection.",
+  },
 };
 
 function ensureDefaultStrategies() {

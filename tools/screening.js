@@ -6,6 +6,8 @@ import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
 import { confirmIndicatorPreset } from "./chart-indicators.js";
 import { getAgentMeridianBase, getAgentMeridianHeaders } from "./agent-meridian.js";
 import { absorptionScore } from "../absorption-score.js";
+import { getAdaptivePlan } from "../regime-adaptive.js";
+import { getActiveStrategy } from "../strategy-library.js";
 
 const DATAPI_JUP = "https://datapi.jup.ag/v1";
 
@@ -747,6 +749,21 @@ export async function getTopCandidates({ limit = 10 } = {}) {
       const top = eligible[0];
       log("screening", `Absorption score top: ${top.name} = ${top.absorption_score?.scaled}/100 (demand=${(top.absorption_score?.components.demand * 100).toFixed(0)}% liq=${(top.absorption_score?.components.liquidity * 100).toFixed(0)}% runner=${(top.absorption_score?.components.runner_history * 100).toFixed(0)}% smart=${(top.absorption_score?.components.smart_wallet * 100).toFixed(0)}% price=${(top.absorption_score?.components.price_response * 100).toFixed(0)}%)`);
     }
+  }
+
+  // Regime-adaptive gate: reject decaying, overextended, downtrending, and
+  // incomplete-data pools before the LLM sees them.
+  if (getActiveStrategy()?.id === "regime_adaptive_spot" && eligible.length > 0) {
+    const before = eligible.length;
+    const regimeFiltered = eligible.filter((pool) => {
+      const plan = getAdaptivePlan(pool);
+      pool.adaptive_plan = plan;
+      if (plan.strategy !== "none") return true;
+      pushFilteredReason(filteredOut, pool, `regime ${plan.regime}: ${plan.reason}`);
+      return false;
+    });
+    eligible.splice(0, eligible.length, ...regimeFiltered);
+    log("screening", `Regime-adaptive gate kept ${eligible.length}/${before} candidate(s)`);
   }
 
   return {

@@ -30,6 +30,7 @@ import { appendDecision } from "../decision-log.js";
 import { agentMeridianJson, getAgentIdForRequests, getAgentMeridianHeaders } from "./agent-meridian.js";
 import { getAndClearStagedSignals } from "../signal-tracker.js";
 import { computePositions, fetchDlmmPnlForPool } from "./pnl.js";
+import { getStrategy } from "../strategy-library.js";
 
 // ─── Lazy SDK loader ───────────────────────────────────────────
 // @meteora-ag/dlmm → @coral-xyz/anchor uses CJS directory imports
@@ -864,6 +865,24 @@ export async function deployPosition({
       entry_tvl,
       entry_volume,
       entry_holders,
+      strategy_snapshot: (() => {
+        const stored = getStrategy({ id: activeStrategy });
+        const exit = stored?.exit || {};
+        return stored?.id ? {
+          id: stored.id,
+          name: stored.name,
+          lp_strategy: stored.lp_strategy,
+          management_config: {
+            takeProfitPct: exit.take_profit_pct,
+            stopLossPct: exit.stop_loss_pct,
+            trailingTakeProfit: exit.trailing_tp,
+            trailingTriggerPct: exit.trailing_trigger_pct,
+            trailingDropPct: exit.trailing_drop_pct,
+            outOfRangeWaitMinutes: exit.out_of_range_wait_minutes,
+            minFeePerTvl24h: exit.min_fee_per_tvl_24h,
+          },
+        } : null;
+      })(),
     });
 
     appendDecision({

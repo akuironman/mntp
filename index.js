@@ -623,6 +623,9 @@ export async function runScreeningCycle({ silent = false } = {}) {
         absLine = `  absorption_score: ${absResult.scaled}/100 (demand=${(absResult.components.demand * 100).toFixed(0)}% liq=${(absResult.components.liquidity * 100).toFixed(0)}% runner=${(absResult.components.runner_history * 100).toFixed(0)}% smart=${(absResult.components.smart_wallet * 100).toFixed(0)}% price_penalty=${(absResult.components.price_response * 100).toFixed(0)}%)`;
       }
 
+      const adaptiveLine = pool.adaptive_plan
+        ? `  regime: ${pool.adaptive_plan.regime} | plan=${pool.adaptive_plan.strategy} | bins=${pool.adaptive_plan.bins_below}/${pool.adaptive_plan.bins_above}`
+        : null;
       const pvpLine = pool.is_pvp
         ? `  pvp: HIGH — rival ${pool.pvp_rival_name || pool.pvp_symbol} (${pool.pvp_rival_mint?.slice(0, 8)}...) has pool ${pool.pvp_rival_pool?.slice(0, 8)}..., tvl=$${pool.pvp_rival_tvl}, holders=${pool.pvp_rival_holders}, fees=${pool.pvp_rival_fees}SOL`
         : null;
@@ -632,6 +635,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
         `  metrics: bin_step=${pool.bin_step}, fee_pct=${pool.fee_pct}%, fee_tvl=${pool.fee_active_tvl_ratio}, vol=$${pool.volume_window}, tvl=$${pool.tvl ?? pool.active_tvl}, volatility_${pool.volatility_timeframe || "30m"}=${pool.volatility}, mcap=$${pool.mcap}, organic=${pool.organic_score}${pool.token_age_hours != null ? `, age=${pool.token_age_hours}h` : ""}`,
         `  audit: top10=${top10Pct}%, bots=${botPct}%, fees=${feesSol}SOL${launchpad ? `, launchpad=${launchpad}` : ""}`,
         pvpLine,
+        adaptiveLine,
         absLine,
         `  smart_wallets: ${sw?.in_pool?.length ?? 0} present${sw?.in_pool?.length ? ` → CONFIDENCE BOOST (${sw.in_pool.map(w => w.name).join(", ")})` : ""}`,
         activeBin != null ? `  active_bin: ${activeBin}` : null,
@@ -1029,6 +1033,10 @@ function formatCandidates(candidates) {
 
 function getDeterministicCloseRule(position, managementConfig) {
   const tracked = getTrackedPosition(position.position);
+  const effectiveConfig = {
+    ...managementConfig,
+    ...Object.fromEntries(Object.entries(tracked?.management_config || {}).filter(([, value]) => value !== undefined && value !== null)),
+  };
   const pnlSuspect = (() => {
     // Couldn't-price-this-tick flag (e.g. Jupiter outage) — never act on PnL rules.
     if (position.pnl_pct_suspicious) return true;
@@ -1041,16 +1049,16 @@ function getDeterministicCloseRule(position, managementConfig) {
     return false;
   })();
 
-  if (!pnlSuspect && position.pnl_pct != null && position.pnl_pct <= managementConfig.stopLossPct) {
+  if (!pnlSuspect && position.pnl_pct != null && position.pnl_pct <= effectiveConfig.stopLossPct) {
     return { action: "CLOSE", rule: 1, reason: "stop loss" };
   }
-  if (!pnlSuspect && position.pnl_pct != null && position.pnl_pct >= managementConfig.takeProfitPct) {
+  if (!pnlSuspect && position.pnl_pct != null && position.pnl_pct >= effectiveConfig.takeProfitPct) {
     return { action: "CLOSE", rule: 2, reason: "take profit" };
   }
   if (
     position.active_bin != null &&
     position.upper_bin != null &&
-    position.active_bin > position.upper_bin + managementConfig.outOfRangeBinsToClose
+    position.active_bin > position.upper_bin + effectiveConfig.outOfRangeBinsToClose
   ) {
     return { action: "CLOSE", rule: 3, reason: "pumped far above range" };
   }
@@ -1058,13 +1066,13 @@ function getDeterministicCloseRule(position, managementConfig) {
     position.active_bin != null &&
     position.upper_bin != null &&
     position.active_bin > position.upper_bin &&
-    (position.minutes_out_of_range ?? 0) >= managementConfig.outOfRangeWaitMinutes
+    (position.minutes_out_of_range ?? 0) >= effectiveConfig.outOfRangeWaitMinutes
   ) {
     return { action: "CLOSE", rule: 4, reason: "OOR" };
   }
   if (
     position.fee_per_tvl_24h != null &&
-    position.fee_per_tvl_24h < managementConfig.minFeePerTvl24h &&
+    position.fee_per_tvl_24h < effectiveConfig.minFeePerTvl24h &&
     (position.age_minutes ?? 0) >= 60
   ) {
     return { action: "CLOSE", rule: 5, reason: "low yield" };
@@ -1533,7 +1541,9 @@ async function deployLatestCandidate(index) {
     }
   }
   const deployAmount = computeDeployAmount((await getWalletBalances()).sol);
-  const binsBelow = computeBinsBelow(candidate.volatility);
+  const adaptivePlan = candidate.adaptive_plan?.strategy !== "none" ? candidate.adaptive_plan : null;
+  const binsBelow = adaptivePlan?.bins_below ?? computeBinsBelow(candidate.volatility);
+  const binsAbove = adaptivePlan?.bins_above ?? 0;
 
   // Slippage-aware timing check
   const timing = await waitForGoodTiming({
@@ -1547,9 +1557,9 @@ async function deployLatestCandidate(index) {
   const result = await executeTool("deploy_position", {
     pool_address: candidate.pool,
     amount_y: deployAmount,
-    strategy: config.strategy.strategy,
+    strategy: adaptivePlan?.strategy ?? config.strategy.strategy,
     bins_below: binsBelow,
-    bins_above: 0,
+    bins_above: binsAbove,
     pool_name: candidate.name,
     base_mint: candidate.base?.mint || candidate.base_mint || null,
     bin_step: candidate.bin_step,
