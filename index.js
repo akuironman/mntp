@@ -55,6 +55,7 @@ import { startDashboard, stopDashboard } from "./web-dashboard.js";
 import { buildStats, formatStats, formatRisk, formatHistory, getAlertSettings, setAlert, getWatchlist, addWatch, removeWatch, pendingConfirmation, isConfirmationValid } from "./telegram-ops.js";
 import { getRecentDecisions } from "./decision-log.js";
 import { getAdaptivePlan } from "./regime-adaptive.js";
+import { chooseAgeSizePlan } from "./age-size-adaptive.js";
 
 import { REPO_ROOT, repoPath } from "./repo-root.js";
 
@@ -631,17 +632,21 @@ export async function runScreeningCycle({ silent = false } = {}) {
       const adaptiveLine = pool.adaptive_plan
         ? `  regime: ${pool.adaptive_plan.regime} | plan=${pool.adaptive_plan.strategy} | bins=${pool.adaptive_plan.bins_below}/${pool.adaptive_plan.bins_above}`
         : null;
+      const ageSizeLine = pool.age_size_plan
+        ? `  age-size: ${pool.age_size_plan.regime} | strategy=${pool.age_size_plan.strategy || "none"} | bins=${pool.age_size_plan.bins_below ?? "-"}/${pool.age_size_plan.bins_above ?? "-"} | min_hold=${pool.age_size_plan.minimum_hold_minutes ?? 0}m`
+        : null;
       const pvpLine = pool.is_pvp
         ? `  pvp: HIGH — rival ${pool.pvp_rival_name || pool.pvp_symbol} (${pool.pvp_rival_mint?.slice(0, 8)}...) has pool ${pool.pvp_rival_pool?.slice(0, 8)}..., tvl=$${pool.pvp_rival_tvl}, holders=${pool.pvp_rival_holders}, fees=${pool.pvp_rival_fees}SOL`
         : null;
-
       const block = [
         `POOL: ${pool.name} (${pool.pool})`,
         `  metrics: bin_step=${pool.bin_step}, fee_pct=${pool.fee_pct}%, fee_tvl=${pool.fee_active_tvl_ratio}, vol=$${pool.volume_window}, tvl=$${pool.tvl ?? pool.active_tvl}, volatility_${pool.volatility_timeframe || "30m"}=${pool.volatility}, mcap=$${pool.mcap}, organic=${pool.organic_score}${pool.token_age_hours != null ? `, age=${pool.token_age_hours}h` : ""}`,
         `  audit: top10=${top10Pct}%, bots=${botPct}%, fees=${feesSol}SOL${launchpad ? `, launchpad=${launchpad}` : ""}`,
         pvpLine,
         adaptiveLine,
+        ageSizeLine,
         absLine,
+
         `  smart_wallets: ${sw?.in_pool?.length ?? 0} present${sw?.in_pool?.length ? ` → CONFIDENCE BOOST (${sw.in_pool.map(w => w.name).join(", ")})` : ""}`,
         activeBin != null ? `  active_bin: ${activeBin}` : null,
         priceChange != null ? `  1h: price${priceChange >= 0 ? "+" : ""}${priceChange}%, net_buyers=${netBuyers ?? "?"}` : null,
@@ -1572,9 +1577,11 @@ async function deployLatestCandidate(index) {
     }
   }
   const deployAmount = computeDeployAmount((await getWalletBalances()).sol);
+  const ageSizePlan = candidate.age_size_plan?.eligible ? candidate.age_size_plan : null;
   const adaptivePlan = candidate.adaptive_plan?.strategy !== "none" ? candidate.adaptive_plan : null;
-  const binsBelow = adaptivePlan?.bins_below ?? computeBinsBelow(candidate.volatility);
-  const binsAbove = adaptivePlan?.bins_above ?? 0;
+  const selectedPlan = ageSizePlan || adaptivePlan;
+  const binsBelow = selectedPlan?.bins_below ?? computeBinsBelow(candidate.volatility);
+  const binsAbove = selectedPlan?.bins_above ?? 0;
 
   // Slippage-aware timing check
   const timing = await waitForGoodTiming({
@@ -1588,7 +1595,7 @@ async function deployLatestCandidate(index) {
   const result = await executeTool("deploy_position", {
     pool_address: candidate.pool,
     amount_y: deployAmount,
-    strategy: adaptivePlan?.strategy ?? config.strategy.strategy,
+    strategy: selectedPlan?.strategy ?? config.strategy.strategy,
     bins_below: binsBelow,
     bins_above: binsAbove,
     pool_name: candidate.name,
@@ -1603,7 +1610,7 @@ async function deployLatestCandidate(index) {
   if (result?.success === false || result?.error) {
     throw new Error(result.error || "Deploy failed");
   }
-  return { result, candidate, deployAmount, binsBelow };
+  return { result, candidate, deployAmount, binsBelow, binsAbove, selectedPlan };
 }
 
 function appendHistory(userMsg, assistantMsg) {
@@ -1732,7 +1739,10 @@ async function telegramHandler(msg) {
 
   if (text.startsWith("/regime")) {
     const strategy = getActiveStrategy();
-    await sendHTML(`🧭 <b>REGIME ADAPTIVE</b>\n${DOUBLE_SEP}\nActive strategy: <code>${escHtml(strategy?.id || config.strategy.strategy)}</code>\nAdaptive gate: <code>${strategy?.id === "regime_adaptive_spot" ? "ON" : "OFF"}</code>\nPlans: accumulation 24/16 · range 20/20 · trending 28/12 · high-volatility 55/25\nRejects: decay, overextension, downtrend, missing volatility`).catch(() => {});
+    const adaptive = strategy?.id === "age_size_adaptive_dlmm"
+      ? "Age/size: <code>new&lt;3d→Spot · mature≥10d→BidAsk · mid-size-aware</code>"
+      : "Age/size: <code>OFF</code>";
+    await sendHTML(`🧭 <b>REGIME ADAPTIVE</b>\n${DOUBLE_SEP}\nActive strategy: <code>${escHtml(strategy?.id || config.strategy.strategy)}</code>\nAdaptive gate: <code>${strategy?.id === "regime_adaptive_spot" ? "ON" : "OFF"}</code>\nPlans: accumulation 24/16 · range 20/20 · trending 28/12 · high-volatility 55/25\nRejects: decay, overextension, downtrend, missing volatility\n${adaptive}`).catch(() => {});
     return;
   }
 

@@ -8,6 +8,7 @@ import { getAgentMeridianBase, getAgentMeridianHeaders } from "./agent-meridian.
 import { absorptionScore } from "../absorption-score.js";
 import { getAdaptivePlan } from "../regime-adaptive.js";
 import { getActiveStrategy } from "../strategy-library.js";
+import { chooseAgeSizePlan } from "../age-size-adaptive.js";
 
 const DATAPI_JUP = "https://datapi.jup.ag/v1";
 
@@ -764,6 +765,19 @@ export async function getTopCandidates({ limit = 10 } = {}) {
     });
     eligible.splice(0, eligible.length, ...regimeFiltered);
     log("screening", `Regime-adaptive gate kept ${eligible.length}/${before} candidate(s)`);
+  }
+
+  if (getActiveStrategy()?.id === "age_size_adaptive_dlmm" && eligible.length > 0) {
+    const before = eligible.length;
+    const selected = eligible.filter((pool) => {
+      const plan = chooseAgeSizePlan(pool, config.management.deployAmountSol);
+      pool.age_size_plan = plan;
+      if (plan.eligible) return true;
+      pushFilteredReason(filteredOut, pool, `age-size ${plan.regime}: ${plan.reason}`);
+      return false;
+    });
+    eligible.splice(0, eligible.length, ...selected);
+    log("screening", `Age-size adaptive gate kept ${eligible.length}/${before} candidate(s)`);
   }
 
   return {

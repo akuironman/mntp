@@ -368,6 +368,9 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
     Object.entries(pos.management_config || {}).filter(([, value]) => value !== undefined && value !== null),
   );
   const effectiveConfig = { ...mgmtConfig, ...strategyOverrides };
+  const ageMinutes = Number(positionData.age_minutes ?? 0);
+  const minHoldMinutes = Number(effectiveConfig.minHoldMinutes ?? 0);
+  const softExitAllowed = ageMinutes >= minHoldMinutes;
 
   let changed = false;
 
@@ -400,7 +403,7 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   }
 
   // ── Trailing TP ────────────────────────────────────────────────
-  if (!pnl_pct_suspicious && pos.trailing_active) {
+  if (!pnl_pct_suspicious && pos.trailing_active && softExitAllowed) {
     const dropFromPeak = pos.peak_pnl_pct - currentPnlPct;
     if (dropFromPeak >= effectiveConfig.trailingDropPct) {
       return {
@@ -432,7 +435,8 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
     fee_per_tvl_24h != null &&
     effectiveConfig.minFeePerTvl24h != null &&
     fee_per_tvl_24h < effectiveConfig.minFeePerTvl24h &&
-    (age_minutes == null || age_minutes >= minAgeForYieldCheck)
+    (age_minutes == null || age_minutes >= minAgeForYieldCheck) &&
+    softExitAllowed
   ) {
     return {
       action: "LOW_YIELD",

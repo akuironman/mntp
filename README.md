@@ -532,7 +532,30 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `trailingDropPct` | `1.5` | Close when PnL drops this % from peak |
 | `strategy` | `bid_ask` | LP strategy: `spot`, `bid_ask`, or `curve` |
 
-### Regime Adaptive Spot
+### Age-Size Adaptive DLMM
+
+The `age_size_adaptive_dlmm` preset uses the public TrackLP comparison as a
+research prior, not a profitability guarantee. It applies these deterministic
+rules before deployment:
+
+```text
+12h–3d       → Spot, 15/15 bins
+3d–10d small → Spot, 25/15 bins
+3d–10d large → BidAsk, 35/0 bins
+10d+         → BidAsk, 40/0 bins, 60-minute soft-exit hold
+```
+
+All branches reject missing volatility, fee/active-TVL below `0.15`, severe
+fee/volume decay, and price response of at least `25%`. Select it with:
+
+```text
+/strategy set age_size_adaptive_dlmm
+```
+
+The selected plan is attached to candidates, consumed by the manual deploy path,
+and stored with the position snapshot. Hard stop-loss and severe out-of-range
+exits are not blocked by the minimum hold; trailing and low-yield exits are.
+
 
 Set the active strategy to `regime_adaptive_spot` in the strategy library. The
 The deterministic gate rejects pools with missing volatility, fee/volume decay,

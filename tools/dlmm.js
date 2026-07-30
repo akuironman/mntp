@@ -878,6 +878,7 @@ export async function deployPosition({
             trailingTakeProfit: exit.trailing_tp,
             trailingTriggerPct: exit.trailing_trigger_pct,
             trailingDropPct: exit.trailing_drop_pct,
+            minHoldMinutes: exit.min_hold_minutes,
             outOfRangeWaitMinutes: exit.out_of_range_wait_minutes,
             minFeePerTvl24h: exit.min_fee_per_tvl_24h,
           },

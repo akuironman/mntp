@@ -648,6 +648,37 @@ const DEFAULT_STRATEGIES = {
     best_for: "Defensive DLMM operation across changing market regimes; prioritizes avoiding bad entries over maximizing deployment frequency.",
     raw: "Regime Adaptive Spot — deterministic regime gates and dynamic range selection.",
   },
+  age_size_adaptive_dlmm: {
+    id: "age_size_adaptive_dlmm",
+    name: "Age-Size Adaptive DLMM",
+    author: "meridian / TrackLP research",
+    author_url: "https://tracklp.com/blog/spot-vs-bidask-strategy",
+    lp_strategy: "adaptive",
+    token_criteria: {
+      min_age_hours: 12,
+      min_fee_tvl_ratio: 0.15,
+      requires_sustained_volume: true,
+      notes: "Spot for pools under 3 days; BidAsk for mature pools (10+ days), with size-aware selection in the 3-10 day band. Rejects missing volatility, fee/volume decay, and overextended price.",
+    },
+    entry: {
+      condition: "Use the deterministic age-size selector. Do not override rejection states without an explicit manual strategy switch.",
+      notes: "TrackLP's public dataset is observational and top-LPer filtered; it is a research prior, not a guarantee.",
+    },
+    range: { type: "dynamic", notes: "New Spot 15/15; mid Spot 25/15; mid large BidAsk 35/0; mature BidAsk 40/0 bins below/above." },
+    exit: {
+      take_profit_pct: 8,
+      stop_loss_pct: -15,
+      trailing_tp: true,
+      trailing_trigger_pct: 4,
+      trailing_drop_pct: 1.5,
+      out_of_range_wait_minutes: 15,
+      min_hold_minutes: 60,
+      max_hold_hours: 72,
+      notes: "Minimum hold applies to profit/low-yield exits for mature BidAsk; stop-loss and severe OOR exits remain available.",
+    },
+    best_for: "Switching between Spot and BidAsk using pool age and deploy size instead of one static LP shape.",
+    raw: "Age-Size Adaptive DLMM based on TrackLP's March 2026 public comparison.",
+  },
 };
 
 function ensureDefaultStrategies() {
