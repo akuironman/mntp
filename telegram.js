@@ -152,10 +152,12 @@ export async function sendMessage(text) {
   return postTelegram("sendMessage", { text: String(text).slice(0, 4096) });
 }
 
-export async function sendMessageWithButtons(text, inlineKeyboard) {
+export async function sendMessageWithButtons(text, inlineKeyboard, { parseMode = "HTML" } = {}) {
   if (!TOKEN || !chatId) return;
   return postTelegram("sendMessage", {
     text: String(text).slice(0, 4096),
+    ...(parseMode ? { parse_mode: parseMode } : {}),
+    disable_web_page_preview: true,
     reply_markup: { inline_keyboard: inlineKeyboard },
   });
 }
@@ -173,11 +175,13 @@ export async function editMessage(text, messageId) {
   });
 }
 
-export async function editMessageWithButtons(text, messageId, inlineKeyboard) {
+export async function editMessageWithButtons(text, messageId, inlineKeyboard, { parseMode = "HTML" } = {}) {
   if (!TOKEN || !chatId || !messageId) return null;
   return postTelegram("editMessageText", {
     message_id: messageId,
     text: String(text).slice(0, 4096),
+    ...(parseMode ? { parse_mode: parseMode } : {}),
+    disable_web_page_preview: true,
     reply_markup: { inline_keyboard: inlineKeyboard },
   });
 }
