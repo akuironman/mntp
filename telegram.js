@@ -413,7 +413,11 @@ async function poll(onMessage) {
 }
 
 const BOT_COMMANDS = [
+  { command: "menu",       description: "🤖 Command center" },
   { command: "help",       description: "📖 Show all commands" },
+  { command: "health",     description: "🩺 System health" },
+  { command: "risk",       description: "🛡 Risk settings" },
+  { command: "stats",      description: "📈 Performance stats" },
   { command: "status",     description: "📊 Wallet + positions snapshot" },
   { command: "wallet",     description: "👛 Balance, deploy amount, HiveMind" },
   { command: "positions",  description: "💧 List open positions" },

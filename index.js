@@ -1369,6 +1369,33 @@ async function showSettingsMenu({ messageId = null, page = "main" } = {}) {
   }
 }
 
+function uiButton(text, action) {
+  return { text, callback_data: `ui:${action}` };
+}
+
+async function showCommandCenter({ messageId = null } = {}) {
+  const positions = await getMyPositions({ force: true, silent: true }).catch(() => ({ positions: [], total_positions: 0 }));
+  const wallet = await getWalletBalances().catch(() => ({ sol: null }));
+  const active = getActiveStrategy();
+  const status = cronStarted ? "🟢 RUNNING" : "⏸ PAUSED";
+  const deploy = config.strategy.deployEnabled ? "ON" : "OFF";
+  const text = [
+    "🤖 <b>MERIDIAN COMMAND CENTER</b>", DOUBLE_SEP,
+    `${status}  ·  Auto-deploy: <code>${deploy}</code>`,
+    `Strategy: <code>${escHtml(active?.id || config.strategy.strategy)}</code>`,
+    `Positions: <code>${positions.total_positions ?? positions.positions?.length ?? 0}/${config.risk.maxPositions}</code>`,
+    `Wallet: <code>${wallet.sol ?? "?"} SOL</code>`, SEP, "Choose an action:",
+  ].join("\n");
+  const keyboard = [
+    [uiButton("📊 STATUS", "status"), uiButton("💧 POSITIONS", "positions")],
+    [uiButton("🔍 SCAN", "screen"), uiButton("🎯 STRATEGY", "strategy")],
+    [uiButton("🛡 RISK", "risk"), uiButton("🩺 HEALTH", "health")],
+    [uiButton("⚙️ SETTINGS", "settings"), uiButton("🔄 REFRESH", "refresh")],
+  ];
+  if (messageId) return editMessageWithButtons(text, messageId, keyboard);
+  return sendMessageWithButtons(text, keyboard);
+}
+
 function normalizeMenuValue(key, raw) {
   if (key === "indicatorIntervals") {
     if (raw === "both") return ["5_MINUTE", "15_MINUTE"];
@@ -1535,7 +1562,8 @@ async function runDeterministicScreen(limit = 5) {
         `   🏊 <code>${escHtml(pool.pool)}</code>`,
       ].join("\n");
     });
-    return `🔍 <b>TOP CANDIDATES</b>  <i>(${candidates.length})</i>\n${DOUBLE_SEP}\n${lines.join("\n\n")}\n${SEP}\n<i>Deploy with</i> <code>/deploy &lt;n&gt;</code>`;
+      const resultText = `🔍 <b>TOP CANDIDATES</b>  <i>(${candidates.length})</i>\n${DOUBLE_SEP}\n${lines.join("\n\n")}\n${SEP}\n<i>Use /deploy &lt;n&gt; for deployment.</i>`;
+      return resultText;
   }
   const examples = (top?.filtered_examples || []).slice(0, 3)
     .map((entry) => `• <b>${escHtml(entry.name)}</b>: <i>${escHtml(entry.reason)}</i>`)
@@ -1543,6 +1571,17 @@ async function runDeterministicScreen(limit = 5) {
   return examples
     ? `📭 <b>No candidates available.</b>\n${SEP}\n<b>Filtered examples:</b>\n${examples}`
     : "📭 <b>No candidates available right now.</b>";
+}
+
+async function sendScreenWithButtons(limit = 5) {
+  const top = await getTopCandidates({ limit });
+  const candidates = (top?.candidates || top?.pools || []).slice(0, limit);
+  setLatestCandidates(candidates);
+  if (!candidates.length) return sendHTML("📭 <b>No candidates available right now.</b>");
+  const lines = candidates.map((pool, i) => `🔹 <b>${i + 1}. ${escHtml(pool.name)}</b>\n   💸 fee/aTVL: <code>${escHtml(pool.fee_active_tvl_ratio ?? "?")}%</code> · 📊 vol: <code>${fmtUsd(pool.volume_window ?? "?")}</code>\n   🏊 <code>${escHtml(pool.pool)}</code>`);
+  const keyboard = candidates.map((_, i) => [uiButton(`📋 DETAILS #${i + 1}`, `ui:pool:${i + 1}`), uiButton(`🚀 DEPLOY #${i + 1}`, `ui:deploy:${i + 1}`)]);
+  keyboard.push([uiButton("🔄 REFRESH", "screen"), uiButton("🏠 MENU", "refresh")]);
+  return sendMessageWithButtons(`🔍 <b>TOP CANDIDATES</b> <i>(${candidates.length})</i>\n${DOUBLE_SEP}\n${lines.join("\n\n")}`, keyboard);
 }
 
 async function deployLatestCandidate(index) {
@@ -1646,7 +1685,27 @@ async function telegramHandler(msg) {
     }
     return;
   }
-  if (text === "/settings" || text === "/menu" || text === "/configmenu") {
+  if (msg?.isCallback && text.startsWith("ui:")) {
+    const [, action, arg] = text.split(":");
+    await answerCallbackQuery(msg.callbackQueryId).catch(() => {});
+    const routes = {
+      status: "/status", screen: "/screen", strategy: "/strategy", risk: "/risk",
+      health: "/health", settings: "/settings", refresh: "/menu",
+    };
+    if (action === "positions") routes.positions = "/positions";
+    if (action === "pool") routes.pool = `/pool ${arg}`;
+    if (action === "close") routes.close = `/close ${arg}`;
+    if (action === "deploy") routes.deploy = `/deploy ${arg}`;
+    if (action === "analyze") routes.pool = `/pool ${arg}`;
+    const route = routes[action];
+    if (route) await telegramHandler({ ...msg, text: route, isCallback: false });
+    return;
+  }
+  if (text === "/menu") {
+    await showCommandCenter().catch((e) => sendMessage(`Command center error: ${e.message}`).catch(() => {}));
+    return;
+  }
+  if (text === "/settings" || text === "/configmenu") {
     await showSettingsMenu().catch((e) => sendMessage(`Settings error: ${e.message}`).catch(() => {}));
     return;
   }
@@ -1813,14 +1872,13 @@ async function telegramHandler(msg) {
       });
       const totEmoji = pnlEmoji(totalPnl);
       const totSign = pnlSign(totalPnl);
-      await sendHTML(
-        `📊 <b>OPEN POSITIONS</b>  <i>(${total_positions})</i>\n` +
-        `${DOUBLE_SEP}\n` +
-        `${cards.join("\n\n")}\n` +
-        `${SEP}\n` +
-        `${totEmoji} <b>Total</b>: <code>${cur}${totalValue.toFixed(2)}</code>  |  PnL <code>${totSign}${cur}${Math.abs(totalPnl).toFixed(2)}</code>\n` +
-        `${DOT_SEP}\n` +
-        `<i>Manage:</i> <code>/close &lt;n&gt;</code> · <code>/pool &lt;n&gt;</code> · <code>/set &lt;n&gt; &lt;note&gt;</code>`
+      const positionKeyboard = positions.map((_, i) => [
+        uiButton(`📋 VIEW #${i + 1}`, `ui:pool:${i + 1}`),
+        uiButton(`🔒 CLOSE #${i + 1}`, `ui:close:${i + 1}`),
+      ]);
+      await sendMessageWithButtons(
+        `📊 <b>OPEN POSITIONS</b>  <i>(${total_positions})</i>\n${DOUBLE_SEP}\n${cards.join("\n\n")}\n${SEP}\n${totEmoji} <b>Total</b>: <code>${cur}${totalValue.toFixed(2)}</code>  |  PnL <code>${totSign}${cur}${Math.abs(totalPnl).toFixed(2)}</code>`,
+        [...positionKeyboard, [uiButton("🔄 REFRESH", "positions"), uiButton("🏠 MENU", "refresh")]],
       );
     } catch (e) { await sendMessage(`⚠️ Error: ${e.message}`).catch(() => {}); }
     return;
@@ -1949,7 +2007,7 @@ async function telegramHandler(msg) {
 
   if (text === "/screen") {
     try {
-      await sendHTML(await runDeterministicScreen(5)).catch(() => {});
+      await sendScreenWithButtons(5);
     } catch (e) {
       await sendMessage(`⚠️ Error: ${e.message}`).catch(() => {});
     }
