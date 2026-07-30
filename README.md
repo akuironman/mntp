@@ -263,7 +263,33 @@ Run screening or management on a timer inside Claude Code:
 
 ---
 
-### CLI (direct tool invocation)
+### Telegram operations
+
+Additional Telegram commands are available:
+
+```text
+/health                         dependency/process health
+/risk                           active risk limits
+/stats [hours]                  closed-position performance
+/history [hours]                recent closed positions
+/why [count]                    recent decision reasons
+/analyze <pool_address>         read-only pool analysis
+/regime                         regime-adaptive strategy state
+/reports [hours]                compact performance report
+/export [hours]                 recent performance JSON
+/alerts                         show alert settings
+/alerts on|off <category>       configure alert category
+/watch <pool> [name]            add a pool to the watchlist
+/watchlist                      show watchlist
+/unwatch <pool>                 remove a pool from the watchlist
+/confirm closeall               confirm /closeall within 60 seconds
+/pause manage|screen|deploy     pause one subsystem
+/resume manage|screen|deploy    resume one subsystem
+```
+
+`/closeall` now requires explicit confirmation. The close-all confirmation is
+one-time and expires after 60 seconds.
+
 
 The `meridian` CLI gives you direct access to every tool with JSON output — useful for scripting, debugging, or piping into other tools.
 

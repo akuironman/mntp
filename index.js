@@ -9,7 +9,7 @@ import { getMyPositions, closePosition, getActiveBin } from "./tools/dlmm.js";
 import { getWalletBalances } from "./tools/wallet.js";
 import { getTopCandidates, degenScore } from "./tools/screening.js";
 import { config, reloadScreeningThresholds, computeDeployAmount } from "./config.js";
-import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
+import { evolveThresholds, getPerformanceSummary, getPerformanceHistory } from "./lessons.js";
 import { executeTool, registerCronRestarter } from "./tools/executor.js";
 import {
   startPolling,
@@ -52,6 +52,9 @@ import { isPortfolioMode, rotatePortfolio, formatPortfolioStatus } from "./portf
 import { startPumpSniper, stopPumpSniper, formatPumpSniperStatus } from "./pump-sniper.js";
 import { waitForGoodTiming } from "./slippage-aware.js";
 import { startDashboard, stopDashboard } from "./web-dashboard.js";
+import { buildStats, formatStats, formatRisk, formatHistory, getAlertSettings, setAlert, getWatchlist, addWatch, removeWatch, pendingConfirmation, isConfirmationValid } from "./telegram-ops.js";
+import { getRecentDecisions } from "./decision-log.js";
+import { getAdaptivePlan } from "./regime-adaptive.js";
 
 import { REPO_ROOT, repoPath } from "./repo-root.js";
 
@@ -117,6 +120,8 @@ let _managementBusy = false; // prevents overlapping management cycles
 let _screeningBusy = false;  // prevents overlapping screening cycles
 let _screeningLastTriggered = 0; // epoch ms — prevents management from spamming screening
 let _lastCopyLpRun = 0;
+let _telegramConfirmation = null;
+const _pausedComponents = new Set();
 // Exit/peak confirmation is now done by consecutive-tick counting in state.js
 // (registerExitSignal / confirmPeak), driven by the 3s RPC poller — no setTimeout rechecks.
 
@@ -788,12 +793,16 @@ export function startCronJobs() {
   stopCronJobs(); // stop any running tasks before (re)starting
 
   const mgmtTask = cron.schedule(`*/${Math.max(1, config.schedule.managementIntervalMin)} * * * *`, async () => {
+    if (_pausedComponents.has("all") || _pausedComponents.has("manage")) return;
     if (_managementBusy) return;
     timers.managementLastRun = Date.now();
     await runManagementCycle();
   });
 
-  const screenTask = cron.schedule(`*/${Math.max(1, config.schedule.screeningIntervalMin)} * * * *`, runScreeningCycle);
+  const screenTask = cron.schedule(`*/${Math.max(1, config.schedule.screeningIntervalMin)} * * * *`, async () => {
+    if (_pausedComponents.has("all") || _pausedComponents.has("screen")) return;
+    await runScreeningCycle();
+  });
 
   const healthTask = cron.schedule(`0 * * * *`, async () => {
     if (_managementBusy) return;
@@ -1446,12 +1455,22 @@ function formatHelpText() {
     cmd("/pool &lt;n&gt;", "detailed info for one position"),
     cmd("/portfolio", "multi-strategy portfolio status"),
     cmd("/briefing", "morning performance briefing"),
+    cmd("/health", "dependency and process health"),
+    cmd("/risk", "active risk limits"),
+    cmd("/stats [hours]", "performance statistics"),
+    cmd("/history [hours]", "closed-position history"),
+    cmd("/why [n]", "recent decision reasons"),
+    cmd("/analyze &lt;pool&gt;", "analyze a pool without deploying"),
+    cmd("/regime", "show adaptive strategy state"),
+    cmd("/reports [hours]", "compact performance report"),
+    cmd("/export [hours]", "export recent performance JSON"),
     ``,
     `💧 <b>Positions</b>`,
     cmd("/close &lt;n&gt;", "close one position by index"),
     cmd("/closeall", "close all open positions"),
     cmd("/set &lt;n&gt; &lt;note&gt;", "set instruction on position"),
     cmd("/compound", "trigger fee compounding now"),
+    cmd("/confirm closeall", "confirm destructive close-all"),
     ``,
     `🔍 <b>Screening &amp; Deploy</b>`,
     cmd("/screen", "refresh candidate list"),
@@ -1479,6 +1498,18 @@ function formatHelpText() {
     cmd("/resume", "resume cron cycles"),
     cmd("/deployoff", "stop auto-deploy (bot stays on)"),
     cmd("/deployon", "re-enable auto-deploy"),
+    cmd("/pause manage", "pause management cycle"),
+    cmd("/resume manage", "resume management cycle"),
+    cmd("/pause screen", "pause screening cycle"),
+    cmd("/resume screen", "resume screening cycle"),
+    cmd("/pause deploy", "pause only new deployments"),
+    cmd("/resume deploy", "resume new deployments"),
+    cmd("/alerts [on|off]", "configure alert categories"),
+    cmd("/alerts on &lt;category&gt;", "enable one alert category"),
+    cmd("/alerts off &lt;category&gt;", "disable one alert category"),
+    cmd("/watch &lt;pool&gt;", "add pool to watchlist"),
+    cmd("/watchlist", "show watched pools"),
+    cmd("/unwatch &lt;pool&gt;", "remove watched pool"),
     cmd("/stop", "shut down agent"),
     SEP,
     `💬 <i>Or just chat — ask me to deploy, close, or analyze.</i>`,
@@ -1652,6 +1683,104 @@ async function telegramHandler(msg) {
     return;
   }
 
+  if (text === "/config") {
+    await sendHTML(formatConfigSnapshot()).catch(() => {});
+    return;
+  }
+
+  if (text === "/risk") {
+    await sendHTML(formatRisk(config, getActiveStrategy())).catch(() => {});
+    return;
+  }
+
+  if (text.startsWith("/stats")) {
+    const hours = Math.max(1, Number(text.split(/\s+/)[1] || 24));
+    await sendHTML(formatStats(buildStats(Number.isFinite(hours) ? hours : 24), Number.isFinite(hours) ? hours : 24)).catch(() => {});
+    return;
+  }
+
+  if (text.startsWith("/history")) {
+    const hours = Math.max(1, Number(text.split(/\s+/)[1] || 168));
+    const history = getPerformanceHistory({ hours: Number.isFinite(hours) ? hours : 168, limit: 20 });
+    await sendHTML(formatHistory(history.positions || [])).catch(() => {});
+    return;
+  }
+
+  if (text.startsWith("/why")) {
+    const requested = Number(text.split(/\s+/)[1] || 6);
+    const decisions = getRecentDecisions(Number.isFinite(requested) ? Math.min(20, Math.max(1, requested)) : 6);
+    const body = decisions.length ? decisions.map((d, i) => `${i + 1}. <b>${escHtml(d.type)} — ${escHtml(d.pool_name || d.pool || "unknown")}</b>\n   ${escHtml(d.reason || d.summary || "no reason recorded")}`).join("\n\n") : "No recent structured decisions.";
+    await sendHTML(`🧠 <b>RECENT DECISIONS</b>\n${DOUBLE_SEP}\n${body}`).catch(() => {});
+    return;
+  }
+
+  if (text === "/health") {
+    const started = Date.now();
+    let rpc = "unknown";
+    let positions = "unknown";
+    try { const result = await Promise.all([getWalletBalances(), getMyPositions({ force: true })]); rpc = `${Date.now() - started}ms`; positions = result[1].total_positions; } catch (e) { rpc = `error: ${e.message}`; }
+    await sendHTML(`🩺 <b>SYSTEM HEALTH</b>\n${DOUBLE_SEP}\nTelegram: <b>${telegramEnabled() ? "✅ enabled" : "⚠️ disabled"}</b>\nRPC/position read: <code>${escHtml(rpc)}</code>\nOpen positions: <code>${positions}</code>\nCron: <code>${cronStarted ? "running" : "paused"}</code>\nDeploy: <code>${config.strategy.deployEnabled ? "enabled" : "disabled"}</code>\nLast screening: <code>${timers.screeningLastRun ? new Date(timers.screeningLastRun).toISOString() : "never"}</code>\nLast management: <code>${timers.managementLastRun ? new Date(timers.managementLastRun).toISOString() : "never"}</code>`).catch(() => {});
+    return;
+  }
+
+  if (text.startsWith("/reports")) {
+    const hours = Math.max(1, Number(text.split(/\s+/)[1] || 168));
+    const stats = buildStats(Number.isFinite(hours) ? hours : 168);
+    await sendHTML(`🧾 <b>REPORT</b>\n${DOUBLE_SEP}\n${formatStats(stats, Number.isFinite(hours) ? hours : 168)}\n${SEP}\nActive strategy: <code>${escHtml(getActiveStrategy()?.id || config.strategy.strategy)}</code>`).catch(() => {});
+    return;
+  }
+
+  if (text.startsWith("/regime")) {
+    const strategy = getActiveStrategy();
+    await sendHTML(`🧭 <b>REGIME ADAPTIVE</b>\n${DOUBLE_SEP}\nActive strategy: <code>${escHtml(strategy?.id || config.strategy.strategy)}</code>\nAdaptive gate: <code>${strategy?.id === "regime_adaptive_spot" ? "ON" : "OFF"}</code>\nPlans: accumulation 24/16 · range 20/20 · trending 28/12 · high-volatility 55/25\nRejects: decay, overextension, downtrend, missing volatility`).catch(() => {});
+    return;
+  }
+
+  if (text.startsWith("/export")) {
+    const hours = Math.max(1, Number(text.split(/\s+/)[1] || 168));
+    const history = getPerformanceHistory({ hours: Number.isFinite(hours) ? hours : 168, limit: 1000 });
+    await sendHTML(`<pre>${escHtml(JSON.stringify(history, null, 2).slice(0, 3800))}</pre>`).catch(() => {});
+    return;
+  }
+
+  const analyzeMatch = text.match(/^\/analyze\s+(.+)$/i);
+  if (analyzeMatch) {
+    try {
+      const raw = analyzeMatch[1].trim();
+      const pool = await getPoolDetail({ pool_address: raw, timeframe: config.screening.timeframe });
+      const candidate = { ...pool, volatility: pool.volatility, fee_active_tvl_ratio: pool.fee_active_tvl_ratio, volume_change_pct: pool.volume_change_pct, fee_change_pct: pool.fee_change_pct, price_change_pct: pool.pool_price_change_pct };
+      const plan = getAdaptivePlan(candidate);
+      await sendHTML(`🔍 <b>POOL ANALYSIS</b>\n${DOUBLE_SEP}\nPool: <code>${escHtml(raw)}</code>\nRegime: <code>${plan.regime}</code>\nPlan: <code>${plan.strategy}</code>\nBins: <code>${plan.bins_below ?? "-"}/${plan.bins_above ?? "-"}</code>\nReason: <i>${escHtml(plan.reason)}</i>\nFee/aTVL: <code>${escHtml(pool.fee_active_tvl_ratio ?? "?")}</code>\nVolatility: <code>${escHtml(pool.volatility ?? "?")}</code>\nVolume trend: <code>${escHtml(pool.volume_change_pct ?? "?")}%</code>\nFee trend: <code>${escHtml(pool.fee_change_pct ?? "?")}%</code>\nPrice change: <code>${escHtml(pool.pool_price_change_pct ?? "?")}%</code>`);
+    } catch (e) { await sendHTML(`❌ <b>Analyze failed</b>\n${SEP}\n<code>${escHtml(e.message)}</code>`).catch(() => {}); }
+    return;
+  }
+
+  if (text.startsWith("/alerts")) {
+    const parts = text.split(/\s+/);
+    if (parts.length === 1) {
+      await sendHTML(`🔔 <b>ALERT SETTINGS</b>\n${DOUBLE_SEP}\n${Object.entries(getAlertSettings()).map(([k, v]) => `${k}: <code>${v ? "ON" : "OFF"}</code>`).join("\n")}`).catch(() => {});
+    } else {
+      const enabled = parts[1].toLowerCase() === "on";
+      const category = parts[2];
+      if (!category || !setAlert(category, enabled)) await sendMessage("Usage: /alerts <on|off> <deploy|close|stoploss|takeprofit|oor|lowyield|health>");
+      else await sendHTML(`✅ Alert <code>${escHtml(category)}</code>: <b>${enabled ? "ON" : "OFF"}</b>`);
+    }
+    return;
+  }
+
+  if (text === "/watchlist" || text.startsWith("/watch ") || text.startsWith("/unwatch ")) {
+    const parts = text.split(/\s+/);
+    if (text === "/watchlist") {
+      const list = getWatchlist();
+      await sendHTML(list.length ? `👀 <b>WATCHLIST</b>\n${DOUBLE_SEP}\n${list.map((x, i) => `${i + 1}. <code>${escHtml(x.pool)}</code> ${escHtml(x.name || "")}`).join("\n")}` : "👀 <b>Watchlist empty.</b>");
+    } else if (parts[1]) {
+      const pool = parts[1];
+      const list = text.startsWith("/watch ") ? addWatch({ pool, name: parts.slice(2).join(" ") || null }) : removeWatch(pool);
+      await sendHTML(`✅ Watchlist updated. Items: <code>${list.length}</code>`);
+    }
+    return;
+  }
+
   if (text === "/positions") {
     try {
       const { positions, total_positions } = await getMyPositions({ force: true });
@@ -1750,25 +1879,27 @@ async function telegramHandler(msg) {
     try {
       const { positions } = await getMyPositions({ force: true });
       if (!positions.length) { await sendHTML("📭 <b>No open positions.</b>"); return; }
+      _telegramConfirmation = pendingConfirmation("closeall", "all");
+      await sendHTML(`⚠️ <b>CONFIRM CLOSE ALL</b>\n${DOUBLE_SEP}\nPositions: <code>${positions.length}</code>\nCurrent action is destructive.\n\nReply with <code>/confirm closeall</code> within 60 seconds.`);
+    } catch (e) { await sendMessage(`⚠️ Error: ${e.message}`).catch(() => {}); }
+    return;
+  }
+
+  if (text === "/confirm closeall") {
+    if (!isConfirmationValid(_telegramConfirmation, "closeall", "all")) { await sendMessage("Confirmation expired. Run /closeall again."); return; }
+    _telegramConfirmation = null;
+    try {
+      const { positions } = await getMyPositions({ force: true });
+      if (!positions.length) { await sendHTML("📭 <b>No open positions.</b>"); return; }
       await sendMessage(`⏳ Closing ${positions.length} position(s)...`);
       const results = [];
       let okCount = 0;
       for (const pos of positions) {
-        try {
-          const result = await closePosition({ position_address: pos.position });
-          if (result.success) okCount++;
-          results.push(`${result.success ? "✅" : "❌"} <b>${escHtml(pos.pair)}</b>${result.success ? "" : ` — <i>${escHtml(result.error || "unknown")}</i>`}`);
-        } catch (error) {
-          results.push(`❌ <b>${escHtml(pos.pair)}</b> — <i>${escHtml(error.message)}</i>`);
-        }
+        try { const result = await closePosition({ position_address: pos.position }); if (result.success) okCount++; results.push(`${result.success ? "✅" : "❌"} <b>${escHtml(pos.pair)}</b>${result.success ? "" : ` — <i>${escHtml(result.error || "unknown")}</i>`}`); }
+        catch (error) { results.push(`❌ <b>${escHtml(pos.pair)}</b> — <i>${escHtml(error.message)}</i>`); }
       }
-      await sendHTML(
-        `🔒 <b>CLOSE-ALL COMPLETE</b>  <i>(${okCount}/${positions.length})</i>\n` +
-        `${DOUBLE_SEP}\n${results.join("\n")}`
-      ).catch(() => {});
-    } catch (e) {
-      await sendMessage(`⚠️ Error: ${e.message}`).catch(() => {});
-    }
+      await sendHTML(`🔒 <b>CLOSE-ALL COMPLETE</b> <i>(${okCount}/${positions.length})</i>\n${DOUBLE_SEP}\n${results.join("\n")}`);
+    } catch (e) { await sendMessage(`⚠️ Error: ${e.message}`).catch(() => {}); }
     return;
   }
 
@@ -1923,13 +2054,14 @@ async function telegramHandler(msg) {
   }
 
   if (text === "/pause") {
-    stopCronJobs();
+    _pausedComponents.add("all");
     cronStarted = false;
     await sendHTML("⏸ <b>Autonomous cycles paused</b>\n" + SEP + "\n<i>Telegram control still works. Use</i> <code>/resume</code> <i>to start again.</i>").catch(() => {});
     return;
   }
 
   if (text === "/resume") {
+    _pausedComponents.delete("all");
     if (!cronStarted) {
       cronStarted = true;
       timers.managementLastRun = Date.now();
@@ -1939,6 +2071,41 @@ async function telegramHandler(msg) {
     } else {
       await sendHTML("ℹ️ <i>Autonomous cycles are already running.</i>").catch(() => {});
     }
+    return;
+  }
+
+  if (text === "/pause manage") {
+    _pausedComponents.add("manage");
+    await sendHTML("⏸ <b>Management cycle paused</b>").catch(() => {});
+    return;
+  }
+  if (text === "/resume manage") {
+    _pausedComponents.delete("manage");
+    await sendHTML("▶️ <b>Management cycle resumed</b>").catch(() => {});
+    return;
+  }
+  if (text === "/pause screen") {
+    _pausedComponents.add("screen");
+    await sendHTML("⏸ <b>Screening cycle paused</b>").catch(() => {});
+    return;
+  }
+  if (text === "/resume screen") {
+    _pausedComponents.delete("screen");
+    await sendHTML("▶️ <b>Screening cycle resumed</b>").catch(() => {});
+    return;
+  }
+
+  if (text === "/pause deploy") {
+    _pausedComponents.add("deploy");
+    config.strategy.deployEnabled = false;
+    await sendHTML("⏸ <b>New deployments paused</b>\n" + SEP + "\nExisting positions continue to be managed. Use <code>/resume deploy</code> to re-enable.").catch(() => {});
+    return;
+  }
+
+  if (text === "/resume deploy") {
+    _pausedComponents.delete("deploy");
+    config.strategy.deployEnabled = true;
+    await sendHTML("▶️ <b>New deployments resumed</b>").catch(() => {});
     return;
   }
 

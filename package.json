@@ -20,6 +20,7 @@
     "test:screen": "node test/test-screening.js",
     "test:agent": "DRY_RUN=true node test/test-agent.js",
     "test:strategy": "node test/test-regime-adaptive.js",
+    "test:telegram": "node test/test-telegram-ops.js",
     "postinstall": "node scripts/patch-anchor.js"
   },
   "knip": {
